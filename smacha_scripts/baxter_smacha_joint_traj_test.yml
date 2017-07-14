@@ -1,0 +1,12 @@
+--- # SMACHA test script using FollowJointTrajectoryAction with Baxter simulator
+name: sm0
+template: Base
+node_name: baxter_smacha_joint_traj_test
+outcomes: [succeeded, aborted, preempted]
+states:
+  - GOAL_DEFAULT:
+      template: FollowJointTrajectoryActionState
+      action_server_namespace: /robot/limb/left/follow_joint_trajectory
+      positions: [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39]
+      goal: goal_default
+      transitions: {succeeded: succeeded}
