@@ -335,7 +335,7 @@ def main():
                                                                 points_cb = lambda ud: [ud.left_limb_joint_positions_2] +
                                                                                         ud.left_limb_outward_traj_points[::-1][0:-1] +
                                                                                         [ud.left_limb_joint_positions_1]),
-                               remapping={'points':'left_limb_return_traj_points', 'times':'left_limb_return_traj_times'},
+                               remapping={'times':'left_limb_return_traj_times'},
                                transitions={'succeeded':'succeeded'})
 
         
