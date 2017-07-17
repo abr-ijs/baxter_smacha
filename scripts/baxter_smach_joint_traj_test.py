@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# import argparse
 import sys
 
 from copy import copy
@@ -26,7 +25,6 @@ import smach
 import smach_ros
 
 import baxter_interface
-
 from baxter_interface import CHECK_VERSION
 
 class Trajectory(object):
