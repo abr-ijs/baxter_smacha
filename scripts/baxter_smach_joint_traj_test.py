@@ -179,6 +179,8 @@ class WaitForMsgState(smach.State):
 
 
 class ReadLimbJointsState(WaitForMsgState):
+    """ This is a state for reading the current joint positions from a specified limb.
+    """
     def __init__(self, limb, topic='/robot/joint_states', **kwargs):
         self._limb = limb
         
@@ -208,109 +210,78 @@ class ReadLimbJointsState(WaitForMsgState):
 
 
 class FollowJointTrajectoryActionState(smach.State):
-    def __init__(self, traj_client):
-        smach.State.__init__(self, 
-                             outcomes=['succeeded'],
-                             input_keys=['current_joint_positions',
-                                         'via_points', 'via_times',
-                                         'target_joint_positions', 'target_time'])
+    """ This is a state for executing a follow joint trajectory action over a
+        series of via points using a Baxter Trajectory action client class.
+
+        This class is necessary beyond the use of a SimpleActionState in
+        combination with a FollowJointTrajectoryAction, because in order to use
+        the Baxter interface succesfully, the trajectory SimpleActionClient must be
+        instructed to wait for the result of the action using a call to wait_for_result(),
+        something that is not possible to specify using a SimpleActionState.
+        
+        Inputs:
+            Default userdata input keys are 'points' and 'times' specifying
+            lists of via points and time durations for each part of the trajectory
+            respectively.
+
+            However, these may be overridden with other input keys and manipulated
+            by callback functions specified by points_cb and times_cb respectively.
+            This is useful in cases where existing userdata point lists need to be
+            re-ordered, for example, or for when points specified in multiple userdata
+            keys need to be combined, e.g. when adding the current joint positions as
+            read from another state to a user-specified list.
+
+            Note that, since these callbacks do not alter the SMACH interface of the state,
+            we do not need to use the cb_interface decorator etc. in this context.
+            
+    """
+    def __init__(self, traj_client, timeout=15.0, input_keys = ['points', 'times'], points_cb = None, times_cb = None):
+        smach.State.__init__(self, outcomes=['succeeded'], input_keys=input_keys)
+
+        # Save trajectory action client wait_for_result timeout
+        self._timeout = timeout
 
         # Save reference to trajectory client object
         self._traj_client = traj_client
         rospy.on_shutdown(self._traj_client.stop)
 
+        print('Greetings from the init!')
+
+        # Set up a points callback
+        self._points_cb = points_cb
+        
+        # Set up a times callback
+        self._times_cb = times_cb
+
     def execute(self, userdata):
-        # Add current joint positions to trajectory
-        # (presumed to have been read into userdata from previous state, e.g. ReadLimbJointsState)
-        self._traj_client.add_point(userdata.current_joint_positions, 0.0)
+        # If a points callback has been defined, use it to format
+        # points specified by the input keys in the userdata
+        if self._points_cb:
+            points = self._points_cb(userdata)
+        else:
+            points = userdata.points
+        
+        # If a times callback has been defined, use it to format
+        # times specified by the input keys in the userdata
+        if self._times_cb:
+            times = self._times_cb(userdata)
+        else:
+            times = userdata.times
 
         # Add via points and times to trajectory
-        for point, time in zip(userdata.points, userdata.times):
+        for point, time in zip(points, userdata.times):
             self._traj_client.add_point(point, time)
 
         # Start motion
         self._traj_client.start()
 
         # Wait for result from action client (important!)
-        self._traj_client.wait(15.0)
+        self._traj_client.wait(self._timeout)
 
         return 'succeeded'
 
 
-class UserDataToOutcomeState(smach.State):
-    """This state returns the userdata value for given input_key as its outcome.
-    """
-    def __init__(self, outcomes, input_key, ud_to_value_func):
-        outcomes = outcomes[:] # copy needed to extend list
-        outcomes.extend(['field_error', 'undefined_outcome'])
-        smach.State.__init__(self, outcomes, [input_key])
-        self._outcomes = outcomes
-        self._input_key = input_key
-#        self._field = 'task_id'
-        self._ud_to_value_func = ud_to_value_func
-
-    def execute(self, ud):
-        field = self._ud_to_value_func(ud[self._input_key])
-#        field = ud[self._input_key][self._field]
-        print "got field as: ", field
-        if field is None:
-            return 'field_error'
-        elif field in self._outcomes:
-            return field
-        else:
-            return 'undefined_outcome'
-
-
 def main():
-    # """RSDK Joint Trajectory Example: Simple Action Client
-
-    # Creates a client of the Joint Trajectory Action Server
-    # to send commands of standard action type,
-    # control_msgs/FollowJointTrajectoryAction.
-
-    # Make sure to start the joint_trajectory_action_server.py
-    # first. Then run this example on a specified limb to
-    # command a short series of trajectory points for the arm
-    # to follow.
-    # """
-    # arg_fmt = argparse.RawDescriptionHelpFormatter
-    # parser = argparse.ArgumentParser(formatter_class=arg_fmt,
-    #                                  description=main.__doc__)
-    # required = parser.add_argument_group('required arguments')
-    # required.add_argument(
-    #     '-l', '--limb', required=True, choices=['left', 'right'],
-    #     help='send joint trajectory to which limb'
-    # )
-    # args = parser.parse_args(rospy.myargv()[1:])
-    # limb = args.limb
-
-    # print("Initializing node... ")
-    # rospy.init_node("rsdk_joint_trajectory_client_%s" % (limb,))
-    # print("Getting robot state... ")
-    # rs = baxter_interface.RobotEnable(CHECK_VERSION)
-    # print("Enabling robot... ")
-    # rs.enable()
-    # print("Running. Ctrl-c to quit")
-    # positions = {
-    #     'left':  [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39],
-    #     'right':  [0.11, -0.62,  1.15, 1.32, -0.80, 1.27, -2.39],
-    # }
-
-    # traj = Trajectory(limb)
-    # rospy.on_shutdown(traj.stop)
-    # # Command Current Joint Positions first
-    # limb_interface = baxter_interface.limb.Limb(limb)
-    # current_angles = [limb_interface.joint_angle(joint) for joint in limb_interface.joint_names()]
-    # traj.add_point(current_angles, 0.0)
-
-    # p1 = positions[limb]
-    # traj.add_point(p1, 7.0)
-    # traj.add_point([x * 0.75 for x in p1], 9.0)
-    # traj.add_point([x * 1.25 for x in p1], 12.0)
-    # traj.start()
-    # traj.wait(15.0)
-    # print("Exiting - Joint Trajectory Action Test Complete")
-    
     print("Starting Baxter SMACH Joint Trajectory Action Test.")
 
     print("Initializing node...")
@@ -328,15 +299,10 @@ def main():
 
     with sm:
 
-        # smach.StateMachine.add('READ_CURRENT_JOINT_ANGLES',
-        #                        ReadTopicState('/robot/joint_states', JointState, ['name', 'position']),
-        #                        transitions={'succeeded':'LEFT_LIMB_JOINT_MOTION_1'},
-        #                        remapping={'name':'current_joint_names', 'position':'current_joint_positions'})
-        
         smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_1',
                                ReadLimbJointsState('left'),
                                remapping={'joint_positions':'left_limb_joint_positions_1'},
-                               transitions={'succeeded':'GENERATE_LEFT_LIMB_OUTWARD_TRAJ'})
+                               transitions={'succeeded':'LEFT_LIMB_OUTWARD_JOINT_MOTION'})
         
         sm.userdata.left_limb_outward_traj_points = (
             [[-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39],
@@ -345,44 +311,35 @@ def main():
         
         sm.userdata.left_limb_outward_traj_times = [0.0, 7.0, 9.0, 12.0]
         
-        StateMachine.add('GENERATE_LEFT_LIMB_OUTWARD_TRAJ',
-                         UserdataToOutputState(lambda ud: [ud.left_limb_joint_positions_1] + ud.left_limb_outward_traj_points),
-                         remapping={'output':'left_limb_outward_traj_points'},
-                         transitions={'succeeded':'LEFT_LIMB_JOINT_MOTION_1')
+        smach.StateMachine.add('LEFT_LIMB_OUTWARD_JOINT_MOTION',
+                               FollowJointTrajectoryActionState(left_traj_client,
+                                                                input_keys = ['left_limb_joint_positions_1',
+                                                                              'left_limb_outward_traj_points',
+                                                                              'times'],
+                                                                points_cb = lambda ud: [ud.left_limb_joint_positions_1] +
+                                                                                        ud.left_limb_outward_traj_points),
+                               remapping={'times':'left_limb_outward_traj_times'},
+                               transitions={'succeeded':'READ_LEFT_LIMB_JOINTS_2'})
 
-        smach.StateMachine.add('LEFT_LIMB_JOINT_MOTION_1',
-                               FollowJointTrajectoryActionState(left_traj_client),
-                               remapping={'points':'left_limb_outward_traj_points', 'times':'left_limb_outward_traj_times'}
+        smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_2',
+                               ReadLimbJointsState('left'),
+                               remapping={'joint_positions':'left_limb_joint_positions_2'},
+                               transitions={'succeeded':'LEFT_LIMB_RETURN_JOINT_MOTION'})
+        
+        sm.userdata.left_limb_return_traj_times = [0.0, 7.0, 9.0, 12.0]
+        
+        smach.StateMachine.add('LEFT_LIMB_RETURN_JOINT_MOTION',
+                               FollowJointTrajectoryActionState(left_traj_client,
+                                                                input_keys = ['left_limb_joint_positions_1',
+                                                                              'left_limb_joint_positions_2',
+                                                                              'left_limb_outward_traj_points',
+                                                                              'times'],
+                                                                points_cb = lambda ud: [ud.left_limb_joint_positions_2] +
+                                                                                        ud.left_limb_outward_traj_points[::-1][0:-1] +
+                                                                                        [ud.left_limb_joint_positions_1]),
+                               remapping={'points':'left_limb_return_traj_points', 'times':'left_limb_return_traj_times'},
                                transitions={'succeeded':'succeeded'})
 
-        # smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_2',
-        #                        ReadLimbJointsState('left'),
-        #                        remapping={'joint_positions':'left_limb_joint_positions_2'},
-        #                        transitions={'succeeded':'GENERATE_LEFT_LIMB_RETURN_TRAJ'})
-
-        # StateMachine.add('GENERATE_LEFT_LIMB_RETURN_TRAJ',
-        #                  UserdataToOutputState(lambda ud: [ud.left_limb_joint_positions_2] + [ud.left_limb_joint_motion_1_points ),
-        #                  remapping={'output':'left_limb_return_traj'},
-        #                  transitions={'succeeded':'succeeded')
-        
-        # smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_2',
-        #                        ReadLimbJointsState('left'),
-        #                        remapping={'joint_positions':'left_limb_joint_positions_2'},
-        #                        transitions={'succeeded':'LEFT_LIMB_JOINT_MOTION_2'})
-        # 
-        # sm.userdata.left_limb_joint_motion_2_points = (
-        #     [[x * 0.75 for x in [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39],
-        #      [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39],
-        #      sm.userdata.left_limb_joint_positions_1]])
-
-        # sm.userdata.left_limb_joint_motion_2_times = [7.0, 9.0, 12.0]
-        # 
-        # smach.StateMachine.add('LEFT_LIMB_JOINT_MOTION_2',
-        #                        FollowJointTrajectoryActionState(left_traj_client),
-        #                        remapping={'current_joint_positions':'left_limb_joint_positions_2',
-        #                                   'points':'left_limb_joint_motion_2_points',
-        #                                   'times':'left_limb_joint_motion_2_times'},
-        #                        transitions={'succeeded':'succeeded'})
         
     sis = smach_ros.IntrospectionServer('BAXTER_SMACH_JOINT_TRAJ_TEST_SERVER', sm, '/SM_ROOT')
 
