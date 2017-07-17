@@ -1,12 +1,23 @@
 --- # SMACHA test script using FollowJointTrajectoryAction with Baxter simulator
-name: sm0
-template: Base
+name: sm
+template: BaxterBase
 node_name: baxter_smacha_joint_traj_test
 outcomes: [succeeded, aborted, preempted]
 states:
-  - GOAL_DEFAULT:
+  - READ_LEFT_LIMB_JOINTS_1:
+      template: ReadLimbJointsState
+      limb: left
+      remapping: {joint_positions: left_limb_joint_positions}
+      transitions: {succeeded: LEFT_LIMB_JOINT_MOTION_1}
+
+  - LEFT_LIMB_JOINT_MOTION_1:
       template: FollowJointTrajectoryActionState
-      action_server_namespace: /robot/limb/left/follow_joint_trajectory
-      positions: [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39]
-      goal: goal_default
+      limb: left
+      userdata:
+        left_limb_joint_motion_1_points:
+          - [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39]
+          - [x * 0.75 for x in [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39]]
+          - [x * 1.25 for x in [-0.11, -0.62, -1.15, 1.32,  0.80, 1.27,  2.39]]
+        left_limb_joint_motion_1_times: [7.0, 9.0, 12.0]
+      remapping: {current_joint_positions:left_limb_joint_positions, points:left_limb_joint_motion_1_points, times:left_limb_joint_motion_1_times}
       transitions: {succeeded: succeeded}
