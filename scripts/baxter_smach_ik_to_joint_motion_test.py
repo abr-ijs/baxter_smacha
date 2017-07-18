@@ -212,11 +212,38 @@ class ReadLimbJointsState(WaitForMsgState):
 
         # Create a userdata JointState entry using the joint positions for the selected limb
         header = Header(stamp=rospy.Time.now(), frame_id='base')
-        limb_joint_names = [self._limb + joint_name for joint_name in ['_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
+        limb_joint_names = [self._limb + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
         limb_joint_positions = [current_joint_positions[limb_joint_name] for limb_joint_name in limb_joint_names]
         userdata.joints = JointState(header=header, name=limb_joint_names, position=limb_joint_positions)
 
         return msg is not None
+
+
+class MoveToJointPositionState(smach.State):
+    """ This state moves a given limb to a specified joint position using the Baxter inteface.
+
+        Note that this state does not make use of the joint trajectory action server.
+    """
+    def __init__(self, limb_interface, timeout=15.0, input_keys = ['positions']):
+        smach.State.__init__(self, outcomes=['succeeded'], input_keys=input_keys)
+        self._limb_interface = limb_interface
+        self._timeout = timeout
+
+    def execute(self, userdata):
+        if userdata.positions:
+            if isinstance(userdata.positions, list):
+                limb_joint_names = [self._limb_interface.name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
+                positions = dict(zip(limb_joint_names, userdata.positions))
+            elif isinstance(userdata.positions, JointState):
+                positions = dict(zip(userdata.positions.name, userdata.positions.position))
+            else:
+                positions = userdata.positions
+
+            self._limb_interface.move_to_joint_positions(positions, timeout=self._timeout)
+        else:
+            return 'aborted'
+
+        return 'succeeded'
 
 
 class FollowJointTrajActionState(smach.State):
@@ -264,7 +291,6 @@ class FollowJointTrajActionState(smach.State):
     def execute(self, userdata):
         # If a points callback has been defined, use it to format
         # points specified by the input keys in the userdata
-        print('I make it into execute()...')
         if self._points_cb:
             points = self._points_cb(userdata)
         else:
@@ -281,16 +307,12 @@ class FollowJointTrajActionState(smach.State):
         for point, time in zip(points, userdata.times):
             if isinstance(point, JointState):
                 point = point.position
-            print('type(point): {}'.format(type(point)))
-            print('point: {}'.format(point))
             self._traj_client.add_point(point, time)
 
         # Start motion
-        print('I make it as far as start()...')
         self._traj_client.start()
 
         # Wait for result from action client (important!)
-        print('Could this be where the problem lies?')
         self._traj_client.wait(self._timeout)
 
         return 'succeeded'
@@ -353,6 +375,10 @@ def main():
     
     print("Initializing node...")
     rospy.init_node('baxter_smach_ik_test')
+    
+    print("Initializing interfaces for each limb... ")
+    left_limb_interface = baxter_interface.Limb('left')
+    right_limb_interface = baxter_interface.Limb('right')
         
     print("Initializing inverse kinematics service proxies for each limb... ")
     left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
@@ -376,13 +402,18 @@ def main():
                                transitions={'succeeded':'LEFT_LIMB_GO_TO_START_POSITION'})
     
         sm.userdata.left_limb_joint_start_positions = (
-                [0.6699952259595108,
-                  1.030009435085784,
-                  -0.4999997247485215,
-                  -1.189968899785275,
+                [-0.08000397926829805,
+                 -0.9999781166910306,
+                 -1.189968899785275,
                   1.9400238130755056,
-                  -0.08000397926829805,
-                  -0.9999781166910306] )
+                  0.6699952259595108,
+                  1.030009435085784,
+                 -0.4999997247485215] )
+        
+        # smach.StateMachine.add('LEFT_LIMB_MOVE_TO_START_POSITION',
+        #                        MoveToJointPositionState(left_limb_interface),
+        #                        remapping={'positions':'left_limb_joint_start_positions'},
+        #                        transitions={'succeeded':'LEFT_LIMB_IK_POSE_TO_JOINT_POSITIONS'})
         
         sm.userdata.left_limb_start_traj_times = [0.0, 7.0]
         
@@ -415,7 +446,7 @@ def main():
                                                                         'left_limb_ik_joint_response_1',
                                                                         'times'],
                                                           points_cb = lambda ud: [ud.left_limb_joint_start_positions] +
-                                                                                 [ud.left_limb_ik_joint_response_1]),
+                                                                                 ud.left_limb_ik_joint_response_1),
                                remapping={'times':'left_limb_ik_joint_traj_times'},
                                transitions={'succeeded':'succeeded'})
 
