@@ -312,18 +312,28 @@ class FollowJointTrajActionState(smach.State):
         return 'succeeded'
 
 class PoseToJointTrajServiceState(smach.State):
-    def __init__(self, ik_service_proxy, timeout=5.0, input_keys=['poses'], output_keys=['joints']):
+    def __init__(self, ik_service_proxy, timeout=5.0, input_keys=['poses'], output_keys=['joints'], poses_cb = None):
         smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys, output_keys=output_keys)
         self._ik_service_proxy = ik_service_proxy
         self._timeout = timeout
+        
+        # Set up a poses callback
+        self._poses_cb = poses_cb
 
     def execute(self, userdata):
+        # If a poses callback has been defined, use it to format
+        # poses specified by the input keys in the userdata
+        if self._poses_cb:
+            poses = self._poses_cb(userdata)
+        else:
+            poses = userdata.poses
+
         # Set up a request object
         ik_request = SolvePositionIKRequest()
 
         # Parse poses from userdata and append to request
         header = Header(stamp=rospy.Time.now(), frame_id='base')
-        for pose in userdata.poses:
+        for pose in poses:
             if isinstance(pose, PoseStamped):
                 ik_request.pose_stamp.append(pose)
             elif isinstance(pose, Pose):
@@ -366,10 +376,31 @@ class PrintUserdataState(smach.State):
 
 
 class LoadGazeboModelState(smach.State):
-    def __init__(self, input_keys=['name', 'model_path', 'pose', 'reference_frame']):
+    def __init__(self, input_keys=['name', 'model_path', 'pose', 'reference_frame'], pose_cb = None):
         smach.State.__init__(self, input_keys=input_keys, outcomes=['succeeded'])
+        
+        # Set up a poses callback
+        self._pose_cb = pose_cb
 
     def execute(self, userdata):
+        # If a pose callback has been defined, use it to format
+        # pose specified by the input keys in the userdata
+        if self._pose_cb:
+            pose = self._pose_cb(userdata)
+        else:
+            pose = userdata.pose
+
+        # Parse pose
+        if isinstance(pose, PoseStamped):
+            pose = pose.pose
+        elif isinstance(pose, Pose):
+            pose = pose
+        elif isinstance(pose, list):
+            position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
+            orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
+            pose = Pose(position=position, orientation=orientation)
+        else:
+            return 'aborted'
 
         # Load model SDF/URDF XML
         model_xml = ''
@@ -385,7 +416,7 @@ class LoadGazeboModelState(smach.State):
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
             spawn_response = spawn_service_proxy(userdata.name, model_xml, "/",
-                                                 userdata.pose, userdata.reference_frame)
+                                                 pose, userdata.reference_frame)
         except rospy.ServiceException, e:
             rospy.logerr('Spawn ' + spawn_service_type.upper() + ' service call failed: {0}'.format(e))
 
@@ -404,9 +435,9 @@ def main():
     print("Initializing node...")
     rospy.init_node('baxter_smach_ik_test')
     
-    # print("Initializing interfaces for each limb... ")
-    # left_limb_interface = baxter_interface.Limb('left')
-    # right_limb_interface = baxter_interface.Limb('right')
+    print("Initializing interfaces for each limb... ")
+    left_limb_interface = baxter_interface.Limb('left')
+    right_limb_interface = baxter_interface.Limb('right')
         
     print("Initializing inverse kinematics service proxies for each limb... ")
     left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
@@ -439,20 +470,28 @@ def main():
         
         sm.userdata.block_model_name = 'block'
         sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
-        sm.userdata.block_model_pose = Pose(position=Point(x=0.6725, y=0.1265, z=0.7825))
-        sm.userdata.block_model_ref_frame = 'world'
+        # sm.userdata.block_model_pose = Pose(position=Point(x=0.6725, y=0.1265, z=0.7825))
+        # sm.userdata.block_model_pose = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
+        # sm.userdata.block_model_ref_frame = 'world'
+        sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], [0.0, 0.0, 0.0, 0.0]]
+        sm.userdata.block_model_pick_ref_frame = 'base'
         
         smach.StateMachine.add('LOAD_BLOCK_MODEL',
                                LoadGazeboModelState(),
                                remapping={'name':'block_model_name',
                                           'model_path':'block_model_path',
-                                          'pose':'block_model_pose',
-                                          'reference_frame':'block_model_ref_frame'},
+                                          'pose':'block_model_pick_pose',
+                                          'reference_frame':'block_model_pick_ref_frame'},
                                transitions={'succeeded':'READ_LEFT_LIMB_JOINTS_1'})
         
         smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_1',
                                ReadLimbJointsState('left'),
                                remapping={'joints':'left_limb_joint_positions_1'},
+                               transitions={'succeeded':'PRINT_START_JOINT_POSITIONS'})
+        
+        smach.StateMachine.add('PRINT_START_JOINT_POSITIONS',
+                               PrintUserdataState(),
+                               remapping={'input': 'left_limb_joint_positions_1'},
                                transitions={'succeeded':'LEFT_LIMB_MOVE_TO_START_POSITION'})
     
         sm.userdata.left_limb_joint_start_positions = (
@@ -464,32 +503,27 @@ def main():
                   1.030009435085784,
                  -0.4999997247485215] )
         
-        sm.userdata.left_limb_start_traj_times = [0.0, 7.0]
-        
         smach.StateMachine.add('LEFT_LIMB_MOVE_TO_START_POSITION',
-                               FollowJointTrajActionState(left_traj_client,
-                                                          input_keys = ['left_limb_joint_positions_1',
-                                                                        'left_limb_joint_start_positions',
-                                                                        'times'],
-                                                          points_cb = lambda ud: [ud.left_limb_joint_positions_1] +
-                                                                                 [ud.left_limb_joint_start_positions]),
-                               remapping={'times':'left_limb_start_traj_times'},
-                               transitions={'succeeded':'LEFT_LIMB_IK_POSE_TO_JOINT_POSITIONS'})
+                               MoveToJointPositionState(left_limb_interface),
+                               remapping={'positions':'left_limb_joint_start_positions'},
+                               transitions={'succeeded':'LEFT_LIMB_IK_PICK_OBJECT_HOVER_POSE'})
     
-        # sm.userdata.ik_request_poses = [[[0.657579481614, 0.851981417433, 0.0388352386502],
-        #                                  [-0.366894936773, 0.885980397775, 0.108155782462, 0.262162481772]]]
+        # sm.userdata.ik_request_position = [0.7, 0.15, -0.129]
+        sm.userdata.overhead_orientation = [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]
+        sm.userdata.hover_offset = [0.0, 0.0, 0.15]
 
-        sm.userdata.ik_request_poses = [[[0.7, 0.15, -0.129],
-                                         [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]]]
-        
-        smach.StateMachine.add('LEFT_LIMB_IK_POSE_TO_JOINT_POSITIONS',
-                               PoseToJointTrajServiceState(left_limb_ik_service_proxy),
-                               remapping={'poses':'ik_request_poses', 'joints':'left_limb_ik_joint_response_1'},
-                               transitions={'succeeded':'LEFT_LIMB_IK_JOINT_MOTION'})
+        smach.StateMachine.add('LEFT_LIMB_IK_PICK_OBJECT_HOVER_POSE',
+                               PoseToJointTrajServiceState(left_limb_ik_service_proxy,
+                                                           input_keys = ['block_model_pick_pose',
+                                                                         'overhead_orientation',
+                                                                         'hover_offset'],
+                                                           poses_cb = lambda ud: [[[a + b for a, b in zip(ud.block_model_pick_pose[0], ud.hover_offset)], ud.overhead_orientation]]),
+                               remapping={'joints':'left_limb_ik_joint_response_1'},
+                               transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE'})
         
         sm.userdata.left_limb_ik_joint_traj_times = [0.0, 7.0]
         
-        smach.StateMachine.add('LEFT_LIMB_IK_JOINT_MOTION',
+        smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE',
                                FollowJointTrajActionState(left_traj_client,
                                                           input_keys = ['left_limb_joint_start_positions',
                                                                         'left_limb_ik_joint_response_1',
@@ -505,6 +539,25 @@ def main():
     
     rospy.on_shutdown(lambda: delete_gazebo_model('block'))
     rospy.on_shutdown(lambda: delete_gazebo_model('cafe_table'))
+
+    # left_limb_joint_names = ['left' + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
+    # left_limb_joint_reset_positions = [ 0.19277889178355334,
+    #                                     1.0470000630843606,
+    #                                    -0.013972419188786667,
+    #                                     0.499569185949551,
+    #                                    -0.17856443605585426,
+    #                                     0.017745921876750614,
+    #                                    -0.013274682885986877]
+    # left_limb_reset_positions = dict(zip(left_limb_joint_names, left_limb_joint_reset_positions))
+    # rospy.on_shutdown(lambda: left_limb_interface.move_to_joint_positions(left_limb_reset_positions))
+
+    # rospy.on_shutdown(right_limb_interface.move_to_neutral)
+   
+    # Wait for joints to finish reseting
+    # rospy.on_shutdown(lambda: rospy.sleep(5))
+
+    # Disable robot
+    rospy.on_shutdown(rs.disable)
 
     outcome = sm.execute()
     
