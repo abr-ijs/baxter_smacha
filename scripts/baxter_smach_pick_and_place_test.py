@@ -2,15 +2,22 @@
 
 import struct
 import sys
+import os
 
 from copy import copy
 
 import rospy
 import rostopic
+import rospkg
 
 import actionlib
 
 import threading
+
+from gazebo_msgs.srv import (
+    SpawnModel,
+    DeleteModel,
+)
 
 from geometry_msgs.msg import (
     PoseStamped,
@@ -176,19 +183,6 @@ class WaitForMsgState(smach.State):
             return 'succeeded'
         else:
             return 'aborted'
-
-
-# class ReadTopicState(WaitForMsgState):
-#     def __init__(self, topic, msg_type, fields, **kwargs):
-#         self._fields = fields
-#         WaitForMsgState.__init__(self, topic, msg_type, msg_cb=self._msg_cb, latch=True, output_keys=fields, **kwargs)
-# 
-#     def _msg_cb(self, msg, userdata):
-#         for field in self._fields:
-#             field_reader = rostopic.msgevalgen(field)
-#             setattr(userdata, field, field_reader(msg))
-# 
-#         return msg is not None
 
 
 class ReadLimbJointsState(WaitForMsgState):
@@ -372,11 +366,37 @@ class PrintUserdataState(smach.State):
 
 
 class LoadGazeboModelState(smach.State):
-    def __init__(self):
-        smach.State.__init__(self, input_keys=['model', 'pose'], outcomes=['succeeded'])
+    def __init__(self, input_keys=['name', 'model_path', 'pose', 'reference_frame']):
+        smach.State.__init__(self, input_keys=input_keys, outcomes=['succeeded'])
 
     def execute(self, userdata):
 
+        # Load model SDF/URDF XML
+        model_xml = ''
+        with open(userdata.model_path, 'r') as model_file:
+            model_xml = model_file.read().replace('\n', '')
+
+        # Spawn model SDF/URDF
+        if os.path.splitext(userdata.model_path)[1][1:].lower() == 'sdf':
+            spawn_service_type = 'sdf'
+        elif os.path.splitext(userdata.model_path)[1][1:].lower() == 'urdf':
+            spawn_service_type = 'urdf'
+
+        try:
+            spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
+            spawn_response = spawn_service_proxy(userdata.name, model_xml, "/",
+                                                 userdata.pose, userdata.reference_frame)
+        except rospy.ServiceException, e:
+            rospy.logerr('Spawn ' + spawn_service_type.upper() + ' service call failed: {0}'.format(e))
+
+        return 'succeeded'
+
+def delete_gazebo_model(model):
+    try:
+        delete_model = rospy.ServiceProxy('/gazebo/delete_model', DeleteModel)
+        resp_delete = delete_model(model)
+    except rospy.ServiceException, e:
+        rospy.loginfo("Delete Model service call failed: {0}".format(e))
 
 def main():
     print("Starting Baxter SMACH Inverse Kinematics Service Test.")
@@ -384,9 +404,9 @@ def main():
     print("Initializing node...")
     rospy.init_node('baxter_smach_ik_test')
     
-    print("Initializing interfaces for each limb... ")
-    left_limb_interface = baxter_interface.Limb('left')
-    right_limb_interface = baxter_interface.Limb('right')
+    # print("Initializing interfaces for each limb... ")
+    # left_limb_interface = baxter_interface.Limb('left')
+    # right_limb_interface = baxter_interface.Limb('right')
         
     print("Initializing inverse kinematics service proxies for each limb... ")
     left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
@@ -404,8 +424,31 @@ def main():
 
     with sm:
 
+        sm.userdata.table_model_name = 'cafe_table'
+        sm.userdata.table_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/cafe_table/model.sdf'
+        sm.userdata.table_model_pose = Pose(position=Point(x=1.0, y=0.0, z=0.0))
+        sm.userdata.table_model_ref_frame = 'world'
+
         smach.StateMachine.add('LOAD_TABLE_MODEL',
-                               LoadGazeboModelState())
+                               LoadGazeboModelState(),
+                               remapping={'name':'table_model_name',
+                                          'model_path':'table_model_path',
+                                          'pose':'table_model_pose',
+                                          'reference_frame':'table_model_ref_frame'},
+                               transitions={'succeeded':'LOAD_BLOCK_MODEL'})
+        
+        sm.userdata.block_model_name = 'block'
+        sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
+        sm.userdata.block_model_pose = Pose(position=Point(x=0.6725, y=0.1265, z=0.7825))
+        sm.userdata.block_model_ref_frame = 'world'
+        
+        smach.StateMachine.add('LOAD_BLOCK_MODEL',
+                               LoadGazeboModelState(),
+                               remapping={'name':'block_model_name',
+                                          'model_path':'block_model_path',
+                                          'pose':'block_model_pose',
+                                          'reference_frame':'block_model_ref_frame'},
+                               transitions={'succeeded':'READ_LEFT_LIMB_JOINTS_1'})
         
         smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_1',
                                ReadLimbJointsState('left'),
@@ -459,6 +502,9 @@ def main():
     sis = smach_ros.IntrospectionServer('BAXTER_SMACH_IK_TEST_SERVER', sm, '/SM_ROOT')
 
     sis.start()
+    
+    rospy.on_shutdown(lambda: delete_gazebo_model('block'))
+    rospy.on_shutdown(lambda: delete_gazebo_model('cafe_table'))
 
     outcome = sm.execute()
     
