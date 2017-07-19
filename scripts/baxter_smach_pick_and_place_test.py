@@ -328,6 +328,8 @@ class PoseToJointTrajServiceState(smach.State):
         else:
             poses = userdata.poses
 
+        print('poses: {}'.format(poses))
+
         # Set up a request object
         ik_request = SolvePositionIKRequest()
 
@@ -351,11 +353,16 @@ class PoseToJointTrajServiceState(smach.State):
         self._ik_service_proxy.wait_for_service(self._timeout)
 
         # Receive response
-        ik_response = self._ik_service_proxy(ik_request)
+        try:
+            ik_response = self._ik_service_proxy(ik_request)
+        except (rospy.ServiceException, rospy.ROSException), e:
+            rospy.logerr("Service call failed: %s" % (e,))
+            return 'aborted'
 
         # Check response validity and return result appropriately
         resp_seeds = struct.unpack('<%dB' % len(ik_response.result_type), ik_response.result_type)
         if any(response == ik_response.RESULT_INVALID for response in resp_seeds):
+            print('resp_seeds: {}'.format(resp_seeds))
             return 'aborted'
         else:
             userdata.joints = ik_response.joints
@@ -429,6 +436,27 @@ def delete_gazebo_model(model):
     except rospy.ServiceException, e:
         rospy.loginfo("Delete Model service call failed: {0}".format(e))
 
+class GripperInterfaceState(smach.State):
+    def __init__(self, gripper_interface, command):
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'])
+        self._gripper_interface = gripper_interface
+        self._command = command
+
+    def execute(self, userdata):
+        if self._command == 'open':
+            self._gripper_interface.open()
+            rospy.sleep(1.0)
+        elif self._command == 'close':
+            self._gripper_interface.close()
+            rospy.sleep(1.0)
+        else:
+            return 'aborted'
+
+        return 'succeeded'
+
+
+
+
 def main():
     print("Starting Baxter SMACH Inverse Kinematics Service Test.")
     
@@ -438,6 +466,10 @@ def main():
     print("Initializing interfaces for each limb... ")
     left_limb_interface = baxter_interface.Limb('left')
     right_limb_interface = baxter_interface.Limb('right')
+    
+    print("Initializing interfaces for each gripper... ")
+    left_gripper_interface = baxter_interface.Gripper('left')
+    right_gripper_interface = baxter_interface.Gripper('right')
         
     print("Initializing inverse kinematics service proxies for each limb... ")
     left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
@@ -452,35 +484,38 @@ def main():
     rs.enable()
 
     sm = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'])
+        
 
     with sm:
+    
+        sm.userdata.overhead_orientation = [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]
+        sm.userdata.hover_offset = [0.0, 0.0, 0.15]
 
         sm.userdata.table_model_name = 'cafe_table'
         sm.userdata.table_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/cafe_table/model.sdf'
-        sm.userdata.table_model_pose = Pose(position=Point(x=1.0, y=0.0, z=0.0))
+        sm.userdata.table_model_pose_world = Pose(position=Point(x=1.0, y=0.0, z=0.0))
         sm.userdata.table_model_ref_frame = 'world'
 
         smach.StateMachine.add('LOAD_TABLE_MODEL',
                                LoadGazeboModelState(),
                                remapping={'name':'table_model_name',
                                           'model_path':'table_model_path',
-                                          'pose':'table_model_pose',
+                                          'pose':'table_model_pose_world',
                                           'reference_frame':'table_model_ref_frame'},
                                transitions={'succeeded':'LOAD_BLOCK_MODEL'})
         
         sm.userdata.block_model_name = 'block'
         sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
         # sm.userdata.block_model_pose = Pose(position=Point(x=0.6725, y=0.1265, z=0.7825))
-        # sm.userdata.block_model_pose = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
-        # sm.userdata.block_model_ref_frame = 'world'
+        sm.userdata.block_model_pick_pose_world = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
+        sm.userdata.block_model_pick_ref_frame = 'world'
         sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], [0.0, 0.0, 0.0, 0.0]]
-        sm.userdata.block_model_pick_ref_frame = 'base'
         
         smach.StateMachine.add('LOAD_BLOCK_MODEL',
                                LoadGazeboModelState(),
                                remapping={'name':'block_model_name',
                                           'model_path':'block_model_path',
-                                          'pose':'block_model_pick_pose',
+                                          'pose':'block_model_pick_pose_world',
                                           'reference_frame':'block_model_pick_ref_frame'},
                                transitions={'succeeded':'READ_LEFT_LIMB_JOINTS_1'})
         
@@ -509,8 +544,6 @@ def main():
                                transitions={'succeeded':'LEFT_LIMB_IK_PICK_OBJECT_HOVER_POSE'})
     
         # sm.userdata.ik_request_position = [0.7, 0.15, -0.129]
-        sm.userdata.overhead_orientation = [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]
-        sm.userdata.hover_offset = [0.0, 0.0, 0.15]
 
         smach.StateMachine.add('LEFT_LIMB_IK_PICK_OBJECT_HOVER_POSE',
                                PoseToJointTrajServiceState(left_limb_ik_service_proxy,
@@ -521,7 +554,7 @@ def main():
                                remapping={'joints':'left_limb_ik_joint_response_1'},
                                transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE'})
         
-        sm.userdata.left_limb_ik_joint_traj_times = [0.0, 7.0]
+        sm.userdata.left_limb_move_to_pick_object_hover_pose_traj_times = [0.0, 12.0]
         
         smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE',
                                FollowJointTrajActionState(left_traj_client,
@@ -530,7 +563,35 @@ def main():
                                                                         'times'],
                                                           points_cb = lambda ud: [ud.left_limb_joint_start_positions] +
                                                                                  ud.left_limb_ik_joint_response_1),
-                               remapping={'times':'left_limb_ik_joint_traj_times'},
+                               remapping={'times':'left_limb_move_to_pick_object_hover_pose_traj_times'},
+                               transitions={'succeeded':'LEFT_LIMB_OPEN_GRIPPER'})
+
+        smach.StateMachine.add('LEFT_LIMB_OPEN_GRIPPER',
+                               GripperInterfaceState(left_gripper_interface, 'open'),
+                               transitions={'succeeded':'LEFT_LIMB_IK_PICK_OBJECT_GRIP_POSE'})
+        
+        smach.StateMachine.add('LEFT_LIMB_IK_PICK_OBJECT_GRIP_POSE',
+                               PoseToJointTrajServiceState(left_limb_ik_service_proxy,
+                                                           input_keys = ['block_model_pick_pose',
+                                                                         'overhead_orientation'],
+                                                           poses_cb = lambda ud: [[ud.block_model_pick_pose[0], ud.overhead_orientation]]),
+                               remapping={'joints':'left_limb_ik_joint_response_2'},
+                               transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PICK_OBJECT_GRIP_POSE'})
+        
+        sm.userdata.left_limb_move_to_pick_object_grip_pose_traj_times = [0.0, 12.0]
+        
+        smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PICK_OBJECT_GRIP_POSE',
+                               FollowJointTrajActionState(left_traj_client,
+                                                          input_keys = ['left_limb_ik_joint_response_1',
+                                                                        'left_limb_ik_joint_response_2',
+                                                                        'times'],
+                                                          points_cb = lambda ud: ud.left_limb_ik_joint_response_1 +
+                                                                                 ud.left_limb_ik_joint_response_2),
+                               remapping={'times':'left_limb_move_to_pick_object_grip_pose_traj_times'},
+                               transitions={'succeeded':'LEFT_LIMB_CLOSE_GRIPPER'})
+        
+        smach.StateMachine.add('LEFT_LIMB_CLOSE_GRIPPER',
+                               GripperInterfaceState(left_gripper_interface, 'close'),
                                transitions={'succeeded':'succeeded'})
 
     sis = smach_ros.IntrospectionServer('BAXTER_SMACH_IK_TEST_SERVER', sm, '/SM_ROOT')
