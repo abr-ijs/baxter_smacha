@@ -208,8 +208,11 @@ class PoseToJointTrajServiceState(smach.State):
 
 
 class LoadGazeboModelState(smach.State):
-    def __init__(self, input_keys=['name', 'model_path', 'pose', 'reference_frame'], pose_cb = None):
+    def __init__(self, name, model_path, input_keys = ['pose', 'reference_frame'], pose_cb = None):
         smach.State.__init__(self, input_keys=input_keys, outcomes=['succeeded'])
+
+        self._name = name
+        self._model_path = model_path
         
         # Set up a poses callback
         self._pose_cb = pose_cb
@@ -236,18 +239,18 @@ class LoadGazeboModelState(smach.State):
 
         # Load model SDF/URDF XML
         model_xml = ''
-        with open(userdata.model_path, 'r') as model_file:
+        with open(self._model_path, 'r') as model_file:
             model_xml = model_file.read().replace('\n', '')
 
         # Spawn model SDF/URDF
-        if os.path.splitext(userdata.model_path)[1][1:].lower() == 'sdf':
+        if os.path.splitext(self._model_path)[1][1:].lower() == 'sdf':
             spawn_service_type = 'sdf'
-        elif os.path.splitext(userdata.model_path)[1][1:].lower() == 'urdf':
+        elif os.path.splitext(self._model_path)[1][1:].lower() == 'urdf':
             spawn_service_type = 'urdf'
 
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
-            spawn_response = spawn_service_proxy(userdata.name, model_xml, "/",
+            spawn_response = spawn_service_proxy(self._name, model_xml, "/",
                                                  pose, userdata.reference_frame)
         except rospy.ServiceException, e:
             rospy.logerr('Spawn ' + spawn_service_type.upper() + ' service call failed: {0}'.format(e))
@@ -307,7 +310,7 @@ def main():
     print("Starting Baxter SMACH Pick and Place Test.")
     
     print("Initializing node...")
-    rospy.init_node('baxter_smach_ik_test')
+    rospy.init_node('baxter_smach_pick_and_place_test')
     
     print("Initializing interfaces for each limb... ")
     left_limb_interface = baxter_interface.Limb('left')
@@ -333,31 +336,25 @@ def main():
         sm.userdata.overhead_orientation = [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]
         sm.userdata.hover_offset = [[0.0, 0.0, 0.15], [0.0, 0.0, 0.0, 0.0]]
 
-        sm.userdata.table_model_name = 'cafe_table'
-        sm.userdata.table_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/cafe_table/model.sdf'
         sm.userdata.table_model_pose_world = Pose(position=Point(x=1.0, y=0.0, z=0.0))
         sm.userdata.table_model_ref_frame = 'world'
             
-        sm.userdata.block_model_name = 'block'
-        sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
+        smach.StateMachine.add('LOAD_TABLE_MODEL',
+                               LoadGazeboModelState('cafe_table',
+                                                    rospkg.RosPack().get_path('baxter_sim_examples')+'/models/cafe_table/model.sdf'),
+                               remapping={'pose':'table_model_pose_world',
+                                          'reference_frame': 'table_model_ref_frame'},
+                               transitions={'succeeded':'LOAD_BLOCK_MODEL'})
+        
         sm.userdata.block_model_pick_pose_world = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
         sm.userdata.block_model_pick_ref_frame = 'world'
         sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], sm.userdata.overhead_orientation]
         sm.userdata.block_model_place_pose = [[0.75, 0.0, -0.129], sm.userdata.overhead_orientation]
-            
-        smach.StateMachine.add('LOAD_TABLE_MODEL',
-                               LoadGazeboModelState(),
-                               remapping={'name':'table_model_name',
-                                          'model_path':'table_model_path',
-                                          'pose':'table_model_pose_world',
-                                          'reference_frame':'table_model_ref_frame'},
-                               transitions={'succeeded':'LOAD_BLOCK_MODEL'})
         
         smach.StateMachine.add('LOAD_BLOCK_MODEL',
-                               LoadGazeboModelState(),
-                               remapping={'name':'block_model_name',
-                                          'model_path':'block_model_path',
-                                          'pose':'block_model_pick_pose_world',
+                               LoadGazeboModelState('block',
+                                                    rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'),
+                               remapping={'pose':'block_model_pick_pose_world',
                                           'reference_frame':'block_model_pick_ref_frame'},
                                transitions={'succeeded':'MOVE_TO_START_POSITION'})
 
