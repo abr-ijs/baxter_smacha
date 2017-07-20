@@ -51,7 +51,8 @@ from baxter_interface import CHECK_VERSION
 
 class Trajectory(object):
     def __init__(self, limb):
-        ns = 'robot/limb/' + limb + '/'
+        self._limb = limb
+        ns = 'robot/limb/' + self._limb + '/'
         self._client = actionlib.SimpleActionClient(
             ns + "follow_joint_trajectory",
             FollowJointTrajectoryAction,
@@ -66,7 +67,7 @@ class Trajectory(object):
                          " before running example.")
             rospy.signal_shutdown("Timed out waiting for Action Server")
             sys.exit(1)
-        self.clear(limb)
+        self.clear()
 
     def add_point(self, positions, time):
         point = JointTrajectoryPoint()
@@ -87,10 +88,10 @@ class Trajectory(object):
     def result(self):
         return self._client.get_result()
 
-    def clear(self, limb):
+    def clear(self):
         self._goal = FollowJointTrajectoryGoal()
         self._goal.goal_time_tolerance = self._goal_time_tolerance
-        self._goal.trajectory.joint_names = [limb + '_' + joint for joint in \
+        self._goal.trajectory.joint_names = [self._limb + '_' + joint for joint in \
             ['s0', 's1', 'e0', 'e1', 'w0', 'w1', 'w2']]
 
 
@@ -213,25 +214,41 @@ class ReadLimbJointsState(WaitForMsgState):
         return msg is not None
 
 
-class MoveToJointPositionState(smach.State):
-    """ This state moves a given limb to a specified joint position using the Baxter inteface.
+class MoveToJointPositionsState(smach.State):
+    """ This state moves a given limb to the specified joint positions using the Baxter inteface.
 
         Note that this state does not make use of the joint trajectory action server.
     """
-    def __init__(self, limb_interface, timeout=15.0, input_keys = ['positions']):
-        smach.State.__init__(self, outcomes=['succeeded'], input_keys=input_keys)
+    def __init__(self, limb_interface, timeout=15.0, input_keys = ['positions'], positions_cb = None):
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys)
         self._limb_interface = limb_interface
         self._timeout = timeout
+        
+        # Set up a points callback
+        self._positions_cb = positions_cb
 
     def execute(self, userdata):
-        if userdata.positions:
-            if isinstance(userdata.positions, list):
+        # If a positions callback has been defined, use it to format
+        # positions specified by the input keys in the userdata
+        if self._positions_cb:
+            positions = self._positions_cb(userdata)
+        else:
+            positions = userdata.positions
+
+        # Check whether or not positions is a singleton and convert if necessary
+        if isinstance(positions, list):
+            if isinstance(positions[0], list) or isinstance(positions[0], JointState):
+                positions = positions[0]
+                
+        # Parse positions
+        if positions:
+            if isinstance(positions, list):
                 limb_joint_names = [self._limb_interface.name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
-                positions = dict(zip(limb_joint_names, userdata.positions))
-            elif isinstance(userdata.positions, JointState):
-                positions = dict(zip(userdata.positions.name, userdata.positions.position))
+                positions = dict(zip(limb_joint_names, positions))
+            elif isinstance(positions, JointState):
+                positions = dict(zip(positions.name, positions.position))
             else:
-                positions = userdata.positions
+                return 'aborted'
 
             self._limb_interface.move_to_joint_positions(positions, timeout=self._timeout)
         else:
@@ -267,7 +284,7 @@ class FollowJointTrajActionState(smach.State):
             
     """
     def __init__(self, traj_client, timeout=15.0, input_keys = ['points', 'times'], points_cb = None, times_cb = None):
-        smach.State.__init__(self, outcomes=['succeeded'], input_keys=input_keys)
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys)
 
         # Save trajectory action client wait_for_result timeout
         self._timeout = timeout
@@ -275,6 +292,9 @@ class FollowJointTrajActionState(smach.State):
         # Save reference to trajectory client object
         self._traj_client = traj_client
         rospy.on_shutdown(self._traj_client.stop)
+
+        # Clear the current goal from the traj_client
+        self._traj_client.clear()
 
         # Set up a points callback
         self._points_cb = points_cb
@@ -309,16 +329,27 @@ class FollowJointTrajActionState(smach.State):
         # Wait for result from action client (important!)
         self._traj_client.wait(self._timeout)
 
-        return 'succeeded'
+        result = self._traj_client.result()
+
+        if result.error_code == 0:
+            return 'succeeded'
+        else:
+            rospy.logerr("Follow trajectory action failed: %s" % result.error_string)
+            return 'aborted'
 
 class PoseToJointTrajServiceState(smach.State):
-    def __init__(self, ik_service_proxy, timeout=5.0, input_keys=['poses'], output_keys=['joints'], poses_cb = None):
+    def __init__(self, ik_service_proxy, timeout=5.0,
+                 input_keys=['poses', 'offsets'], output_keys=['joints'], poses_cb = None, offsets_cb = None):
         smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys, output_keys=output_keys)
         self._ik_service_proxy = ik_service_proxy
         self._timeout = timeout
+        self._verbose = True
         
         # Set up a poses callback
         self._poses_cb = poses_cb
+
+        # Set up an offsets callback
+        self._offsets_cb = offsets_cb
 
     def execute(self, userdata):
         # If a poses callback has been defined, use it to format
@@ -327,27 +358,75 @@ class PoseToJointTrajServiceState(smach.State):
             poses = self._poses_cb(userdata)
         else:
             poses = userdata.poses
+        
+        # If an offsets callback has been defined, use it to format
+        # offsets specified by the input keys in the userdata
+        if self._offsets_cb:
+            offsets = self._offsets_cb(userdata)
+        else:
+            if 'offsets' in userdata:
+                offsets = userdata.offsets
+            else:
+                offsets = None
 
-        print('poses: {}'.format(poses))
+        # Check if poses is a singleton and convert to list if necessary
+        if not isinstance(poses, list):
+            poses = [poses]
+        elif len(poses) == 2 and len(poses[0]) != len(poses[1]):
+            poses = [poses]
+        else:
+            return 'aborted'
 
+        # Check if offsets is a singleton and convert to list if necessary
+        if offsets:
+            if not isinstance(offsets, list):
+                offsets = [offsets]
+            elif len(offsets) == 2 and len(offsets[0]) != len(offsets[1]):
+                offsets = [offsets]
+            else:
+                return 'aborted'
+        
         # Set up a request object
         ik_request = SolvePositionIKRequest()
 
-        # Parse poses from userdata and append to request
+        # Parse poses from userdata, stamp them, add offsets if required,
+        # and append to inverse kinematics request.
         header = Header(stamp=rospy.Time.now(), frame_id='base')
-        for pose in poses:
+        for i_pose in range(len(poses)):
+            # Parse pose
+            pose = poses[i_pose]
             if isinstance(pose, PoseStamped):
-                ik_request.pose_stamp.append(pose)
+                pose_stamped = pose
             elif isinstance(pose, Pose):
                 pose_stamped = PoseStamped(header=header, pose=pose)
-                ik_request.pose_stamp.append(pose_stamped)
             elif isinstance(pose, list):
                 position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
                 orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
                 pose_stamped = PoseStamped(header=header, pose = Pose(position=position, orientation=orientation))
-                ik_request.pose_stamp.append(pose_stamped)
             else:
                 return 'aborted'
+
+            # Parse offset
+            if offsets:
+                offset = offsets[i_pose]
+                if isinstance(offset, PoseStamped):
+                    offset = offset.pose
+                elif isinstance(offset, Pose):
+                    pass
+                elif isinstance(offset, list):
+                    offset = Pose(position=Point(x=offset[0][0], y=offset[0][1], z=offset[0][2]),
+                                  orientation=Quaternion(x=offset[1][0], y=offset[1][1], z=offset[1][2], w=offset[1][3]))
+
+                pose_stamped.pose.position.x = pose_stamped.pose.position.x + offset.position.x
+                pose_stamped.pose.position.y = pose_stamped.pose.position.y + offset.position.y
+                pose_stamped.pose.position.z = pose_stamped.pose.position.z + offset.position.z
+                pose_stamped.pose.orientation.x = pose_stamped.pose.orientation.x + offset.orientation.x
+                pose_stamped.pose.orientation.y = pose_stamped.pose.orientation.y + offset.orientation.y
+                pose_stamped.pose.orientation.z = pose_stamped.pose.orientation.z + offset.orientation.z
+                pose_stamped.pose.orientation.w = pose_stamped.pose.orientation.w + offset.orientation.w
+
+            # Append pose to IK request
+            ik_request.pose_stamp.append(pose_stamped)
 
         # Wait for service (important!)
         self._ik_service_proxy.wait_for_service(self._timeout)
@@ -361,6 +440,26 @@ class PoseToJointTrajServiceState(smach.State):
 
         # Check response validity and return result appropriately
         resp_seeds = struct.unpack('<%dB' % len(ik_response.result_type), ik_response.result_type)
+
+        limb_joints = {}
+        if (resp_seeds[0] != ik_response.RESULT_INVALID):
+            seed_str = {
+                        ik_request.SEED_USER: 'User Provided Seed',
+                        ik_request.SEED_CURRENT: 'Current Joint Angles',
+                        ik_request.SEED_NS_MAP: 'Nullspace Setpoints',
+                       }.get(resp_seeds[0], 'None')
+            if self._verbose:
+                print("IK Solution SUCCESS - Valid Joint Solution Found from Seed Type: {0}".format(
+                         (seed_str)))
+            # Format solution into Limb API-compatible dictionary
+            limb_joints = dict(zip(ik_response.joints[0].name, ik_response.joints[0].position))
+            if self._verbose:
+                print("IK Joint Solution:\n{0}".format(limb_joints))
+                print("------------------")
+        else:
+            rospy.logerr("INVALID POSE - No Valid Joint Solution Found.")
+            return 'aborted'
+
         if any(response == ik_response.RESULT_INVALID for response in resp_seeds):
             print('resp_seeds: {}'.format(resp_seeds))
             return 'aborted'
@@ -454,11 +553,29 @@ class GripperInterfaceState(smach.State):
 
         return 'succeeded'
 
+class ReadEndpointPoseState(smach.State):
+    def __init__(self, limb_interface, output_keys = ['pose']):
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'], output_keys=output_keys)
+        self._limb_interface = limb_interface
 
+    def execute(self, userdata):
+        current_pose = self._limb_interface.endpoint_pose()
 
+        pose = Pose()
+        pose.position.x = current_pose['position'].x
+        pose.position.y = current_pose['position'].y
+        pose.position.z = current_pose['position'].z
+        pose.orientation.x = current_pose['orientation'].x
+        pose.orientation.y = current_pose['orientation'].y
+        pose.orientation.z = current_pose['orientation'].z
+        pose.orientation.w = current_pose['orientation'].w
+
+        userdata.pose = pose
+
+        return 'succeeded'
 
 def main():
-    print("Starting Baxter SMACH Inverse Kinematics Service Test.")
+    print("Starting Baxter SMACH Pick and Place Test.")
     
     print("Initializing node...")
     rospy.init_node('baxter_smach_ik_test')
@@ -475,9 +592,9 @@ def main():
     left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
     right_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/right/PositionKinematicsNode/IKService', SolvePositionIK)
     
-    print("Initializing follow joint trajectory action clients for each limb... ")
-    left_traj_client = Trajectory('left')
-    right_traj_client = Trajectory('right')
+    # print("Initializing follow joint trajectory action clients for each limb... ")
+    # left_traj_client = Trajectory('left')
+    # right_traj_client = Trajectory('right')
     
     rs = baxter_interface.RobotEnable(CHECK_VERSION)
     print("Enabling robot... ")
@@ -489,55 +606,37 @@ def main():
     with sm:
     
         sm.userdata.overhead_orientation = [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]
-        sm.userdata.hover_offset = [0.0, 0.0, 0.15]
+        sm.userdata.hover_offset = [[0.0, 0.0, 0.15], [0.0, 0.0, 0.0, 0.0]]
 
         sm.userdata.table_model_name = 'cafe_table'
         sm.userdata.table_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/cafe_table/model.sdf'
         sm.userdata.table_model_pose_world = Pose(position=Point(x=1.0, y=0.0, z=0.0))
         sm.userdata.table_model_ref_frame = 'world'
-
-        sm_load_models = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'])
-
-        with sm_load_models:
-
-            smach.StateMachine.add('LOAD_TABLE_MODEL',
-                                   LoadGazeboModelState(),
-                                   remapping={'name':'table_model_name',
-                                              'model_path':'table_model_path',
-                                              'pose':'table_model_pose_world',
-                                              'reference_frame':'table_model_ref_frame'},
-                                   transitions={'succeeded':'LOAD_BLOCK_MODEL'})
             
-            sm.userdata.block_model_name = 'block'
-            sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
-            # sm.userdata.block_model_pose = Pose(position=Point(x=0.6725, y=0.1265, z=0.7825))
-            sm.userdata.block_model_pick_pose_world = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
-            sm.userdata.block_model_pick_ref_frame = 'world'
-            sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], [0.0, 0.0, 0.0, 0.0]]
-            sm.userdata.block_model_place_pose = [[0.75, 0.0, -0.129], [0.0, 0.0, 0.0, 0.0]]
+        sm.userdata.block_model_name = 'block'
+        sm.userdata.block_model_path = rospkg.RosPack().get_path('baxter_sim_examples')+'/models/block/model.urdf'
+        sm.userdata.block_model_pick_pose_world = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
+        sm.userdata.block_model_pick_ref_frame = 'world'
+        sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], sm.userdata.overhead_orientation]
+        sm.userdata.block_model_place_pose = [[0.75, 0.0, -0.129], sm.userdata.overhead_orientation]
             
-            smach.StateMachine.add('LOAD_BLOCK_MODEL',
-                                   LoadGazeboModelState(),
-                                   remapping={'name':'block_model_name',
-                                              'model_path':'block_model_path',
-                                              'pose':'block_model_pick_pose_world',
-                                              'reference_frame':'block_model_pick_ref_frame'},
-                                   transitions={'succeeded':'succeeded'})
-
-        smach.StateMachine.add('LOAD_MODELS', sm_load_models, 
-                               transitions={'succeeded':'LEFT_LIMB_MOVE_TO_START_POSITION'}) 
+        smach.StateMachine.add('LOAD_TABLE_MODEL',
+                               LoadGazeboModelState(),
+                               remapping={'name':'table_model_name',
+                                          'model_path':'table_model_path',
+                                          'pose':'table_model_pose_world',
+                                          'reference_frame':'table_model_ref_frame'},
+                               transitions={'succeeded':'LOAD_BLOCK_MODEL'})
         
-        # smach.StateMachine.add('READ_LEFT_LIMB_JOINTS_1',
-        #                        ReadLimbJointsState('left'),
-        #                        remapping={'joints':'left_limb_joint_positions_1'},
-        #                        transitions={'succeeded':'PRINT_START_JOINT_POSITIONS'})
-        # 
-        # smach.StateMachine.add('PRINT_START_JOINT_POSITIONS',
-        #                        PrintUserdataState(),
-        #                        remapping={'input': 'left_limb_joint_positions_1'},
-        #                        transitions={'succeeded':'LEFT_LIMB_MOVE_TO_START_POSITION'})
-    
-        sm.userdata.left_limb_joint_start_positions = (
+        smach.StateMachine.add('LOAD_BLOCK_MODEL',
+                               LoadGazeboModelState(),
+                               remapping={'name':'block_model_name',
+                                          'model_path':'block_model_path',
+                                          'pose':'block_model_pick_pose_world',
+                                          'reference_frame':'block_model_pick_ref_frame'},
+                               transitions={'succeeded':'MOVE_TO_START_POSITION'})
+
+        sm.userdata.joint_start_positions = (
                 [-0.08000397926829805,
                  -0.9999781166910306,
                  -1.189968899785275,
@@ -546,141 +645,196 @@ def main():
                   1.030009435085784,
                  -0.4999997247485215] )
         
-        smach.StateMachine.add('LEFT_LIMB_MOVE_TO_START_POSITION',
-                               MoveToJointPositionState(left_limb_interface),
-                               remapping={'positions':'left_limb_joint_start_positions'},
+        smach.StateMachine.add('MOVE_TO_START_POSITION',
+                               MoveToJointPositionsState(left_limb_interface),
+                               remapping={'positions':'joint_start_positions'},
                                transitions={'succeeded':'PICK_BLOCK'})
+            
+        # smach.StateMachine.add('OPEN_GRIPPER',
+        #                        GripperInterfaceState(left_gripper_interface, 'open'),
+        #                        transitions={'succeeded':'PICK_BLOCK'})
     
-        sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'])
+        sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
+                                           input_keys=['block_model_pick_pose',
+                                                       'overhead_orientation',
+                                                       'hover_offset',
+                                                       'joint_start_positions'],
+                                           output_keys=['ik_joint_response_1',
+                                                        'ik_joint_response_2'])
 
         with sm_pick_block:
 
-            smach.StateMachine.add('LEFT_LIMB_IK_PICK_OBJECT_HOVER_POSE',
-                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy,
-                                                               input_keys = ['block_model_pick_pose',
-                                                                             'overhead_orientation',
-                                                                             'hover_offset'],
-                                                               poses_cb = lambda ud: [[[a + b for a, b in zip(ud.block_model_pick_pose[0], ud.hover_offset)], ud.overhead_orientation]]),
-                                   remapping={'joints':'left_limb_ik_joint_response_1'},
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE'})
+            smach.StateMachine.add('IK_PICK_OBJECT_HOVER_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'block_model_pick_pose',
+                                              'offsets':'hover_offset',
+                                              'joints':'ik_joint_response_1'},
+                                   transitions={'succeeded':'MOVE_TO_PICK_OBJECT_HOVER_POSE'})
             
-            sm.userdata.left_limb_move_to_pick_object_hover_pose_traj_times = [0.0, 12.0]
+            # sm_pick_block.userdata.move_to_pick_object_hover_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_PICK_OBJECT_HOVER_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['joint_start_positions',
+            #                                                                 'ik_joint_response_1',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: [ud.joint_start_positions] +
+            #                                                                          ud.ik_joint_response_1),
+            #                        remapping={'times':'move_to_pick_object_hover_pose_traj_times'},
+            #                        transitions={'succeeded':'OPEN_GRIPPER'})
             
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PICK_OBJECT_HOVER_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_joint_start_positions',
-                                                                            'left_limb_ik_joint_response_1',
-                                                                            'times'],
-                                                              points_cb = lambda ud: [ud.left_limb_joint_start_positions] +
-                                                                                     ud.left_limb_ik_joint_response_1),
-                                   remapping={'times':'left_limb_move_to_pick_object_hover_pose_traj_times'},
-                                   transitions={'succeeded':'LEFT_LIMB_OPEN_GRIPPER'})
+            smach.StateMachine.add('MOVE_TO_PICK_OBJECT_HOVER_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_1'},
+                                   transitions={'succeeded':'OPEN_GRIPPER'})
 
-            smach.StateMachine.add('LEFT_LIMB_OPEN_GRIPPER',
+            smach.StateMachine.add('OPEN_GRIPPER',
                                    GripperInterfaceState(left_gripper_interface, 'open'),
-                                   transitions={'succeeded':'LEFT_LIMB_IK_PICK_OBJECT_GRIP_POSE'})
+                                   transitions={'succeeded':'IK_PICK_OBJECT_GRIP_POSE'})
             
-            smach.StateMachine.add('LEFT_LIMB_IK_PICK_OBJECT_GRIP_POSE',
-                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy,
-                                                               input_keys = ['block_model_pick_pose',
-                                                                             'overhead_orientation'],
-                                                               poses_cb = lambda ud: [[ud.block_model_pick_pose[0], ud.overhead_orientation]]),
-                                   remapping={'joints':'left_limb_ik_joint_response_2'},
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PICK_OBJECT_GRIP_POSE'})
+            smach.StateMachine.add('IK_PICK_OBJECT_GRIP_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'block_model_pick_pose', 'joints':'ik_joint_response_2'},
+                                   transitions={'succeeded':'MOVE_TO_PICK_OBJECT_GRIP_POSE'})
             
-            sm.userdata.left_limb_move_to_pick_object_grip_pose_traj_times = [0.0, 12.0]
+            # sm_pick_block.userdata.move_to_pick_object_grip_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_PICK_OBJECT_GRIP_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['ik_joint_response_1',
+            #                                                                 'ik_joint_response_2',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: ud.ik_joint_response_1 +
+            #                                                                          ud.ik_joint_response_2),
+            #                        remapping={'times':'move_to_pick_object_grip_pose_traj_times'},
+            #                        transitions={'succeeded':'CLOSE_GRIPPER'})
             
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PICK_OBJECT_GRIP_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_ik_joint_response_1',
-                                                                            'left_limb_ik_joint_response_2',
-                                                                            'times'],
-                                                              points_cb = lambda ud: ud.left_limb_ik_joint_response_1 +
-                                                                                     ud.left_limb_ik_joint_response_2),
-                                   remapping={'times':'left_limb_move_to_pick_object_grip_pose_traj_times'},
-                                   transitions={'succeeded':'LEFT_LIMB_CLOSE_GRIPPER'})
+            smach.StateMachine.add('MOVE_TO_PICK_OBJECT_GRIP_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_2'},
+                                   transitions={'succeeded':'CLOSE_GRIPPER'})
             
-            smach.StateMachine.add('LEFT_LIMB_CLOSE_GRIPPER',
+            smach.StateMachine.add('CLOSE_GRIPPER',
                                    GripperInterfaceState(left_gripper_interface, 'close'),
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_GRIPPED_OBJECT_HOVER_POSE'})
-            
-            sm.userdata.left_limb_move_to_gripped_object_hover_pose_traj_times = [0.0, 12.0]
-            
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_GRIPPED_OBJECT_HOVER_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_ik_joint_response_1',
-                                                                            'left_limb_ik_joint_response_2',
-                                                                            'times'],
-                                                              points_cb = lambda ud: ud.left_limb_ik_joint_response_2 +
-                                                                                     ud.left_limb_ik_joint_response_1),
-                                   remapping={'times':'left_limb_move_to_gripped_object_hover_pose_traj_times'},
-                                   transitions={'succeeded':'succeeded'})
+                                   transitions={'succeeded':'READ_GRIPPED_BLOCK_ENDPOINT_POSE'})
 
-        smach.StateMachine.add('PICK_BLOCK', sm_pick_block, 
+            smach.StateMachine.add('READ_GRIPPED_BLOCK_ENDPOINT_POSE',
+                                   ReadEndpointPoseState(left_limb_interface),
+                                   remapping={'pose':'gripped_block_endpoint_pose'},
+                                   transitions={'succeeded':'IK_PICK_GRIPPED_OBJECT_HOVER_POSE'})
+            
+            smach.StateMachine.add('IK_PICK_GRIPPED_OBJECT_HOVER_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'gripped_block_endpoint_pose',
+                                              'offsets':'hover_offset',
+                                              'joints':'ik_joint_response_gripped_object_hover_pose'},
+                                   transitions={'succeeded':'MOVE_TO_GRIPPED_OBJECT_HOVER_POSE'})
+            
+            # sm_pick_block.userdata.move_to_gripped_object_hover_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_GRIPPED_OBJECT_HOVER_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['ik_joint_response_2',
+            #                                                                 'ik_joint_response_gripped_object_hover_pose',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: ud.ik_joint_response_2 +
+            #                                                                          ud.ik_joint_response_gripped_object_hover_pose),
+            #                        remapping={'times':'move_to_gripped_object_hover_pose_traj_times'},
+            #                        transitions={'succeeded':'succeeded'})
+            
+            smach.StateMachine.add('MOVE_TO_GRIPPED_OBJECT_HOVER_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_gripped_object_hover_pose'},
+                                   transitions={'succeeded':'succeeded'})
+        
+            
+        smach.StateMachine.add('PICK_BLOCK', sm_pick_block,
                                transitions={'succeeded':'PLACE_BLOCK'}) 
         
-        sm_place_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'])
+        sm_place_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
+                                            input_keys=['block_model_place_pose',
+                                                        'overhead_orientation',
+                                                        'hover_offset',
+                                                        'ik_joint_response_1',
+                                                        'ik_joint_response_2'])
 
         with sm_place_block:
         
-            smach.StateMachine.add('LEFT_LIMB_IK_PLACE_OBJECT_HOVER_POSE',
-                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy,
-                                                               input_keys = ['block_model_place_pose',
-                                                                             'overhead_orientation',
-                                                                             'hover_offset'],
-                                                               poses_cb = lambda ud: [[[a + b for a, b in zip(ud.block_model_place_pose[0], ud.hover_offset)], ud.overhead_orientation]]),
-                                   remapping={'joints':'left_limb_ik_joint_response_3'},
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PLACE_OBJECT_HOVER_POSE'})
+            smach.StateMachine.add('IK_PLACE_OBJECT_HOVER_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'block_model_place_pose',
+                                              'offsets':'hover_offset',
+                                              'joints':'ik_joint_response_3'},
+                                   transitions={'succeeded':'MOVE_TO_PLACE_OBJECT_HOVER_POSE'})
             
-            sm.userdata.left_limb_move_to_place_object_hover_pose_traj_times = [0.0, 12.0]
+            # sm_place_block.userdata.move_to_place_object_hover_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_PLACE_OBJECT_HOVER_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['ik_joint_response_1',
+            #                                                                 'ik_joint_response_3',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: ud.ik_joint_response_1 +
+            #                                                                          ud.ik_joint_response_3),
+            #                        remapping={'times':'move_to_place_object_hover_pose_traj_times'},
+            #                        transitions={'succeeded':'IK_PLACE_OBJECT_RELEASE_POSE'})
             
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PLACE_OBJECT_HOVER_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_ik_joint_response_1',
-                                                                            'left_limb_ik_joint_response_3',
-                                                                            'times'],
-                                                              points_cb = lambda ud: ud.left_limb_ik_joint_response_1 +
-                                                                                     ud.left_limb_ik_joint_response_3),
-                                   remapping={'times':'left_limb_move_to_place_object_hover_pose_traj_times'},
-                                   transitions={'succeeded':'LEFT_LIMB_IK_PLACE_OBJECT_RELEASE_POSE'})
+            smach.StateMachine.add('MOVE_TO_PLACE_OBJECT_HOVER_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_3'},
+                                   transitions={'succeeded':'IK_PLACE_OBJECT_RELEASE_POSE'})
             
-            smach.StateMachine.add('LEFT_LIMB_IK_PLACE_OBJECT_RELEASE_POSE',
-                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy,
-                                                               input_keys = ['block_model_place_pose',
-                                                                             'overhead_orientation'],
-                                                               poses_cb = lambda ud: [[ud.block_model_place_pose[0], ud.overhead_orientation]]),
-                                   remapping={'joints':'left_limb_ik_joint_response_4'},
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_PLACE_OBJECT_RELEASE_POSE'})
+            smach.StateMachine.add('IK_PLACE_OBJECT_RELEASE_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'block_model_place_pose', 'joints':'ik_joint_response_4'},
+                                   transitions={'succeeded':'MOVE_TO_PLACE_OBJECT_RELEASE_POSE'})
             
-            sm.userdata.left_limb_move_to_place_object_relase_pose_traj_times = [0.0, 12.0]
+            # sm_place_block.userdata.move_to_place_object_relase_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_PLACE_OBJECT_RELEASE_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['ik_joint_response_3',
+            #                                                                 'ik_joint_response_4',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: ud.ik_joint_response_3 +
+            #                                                                          ud.ik_joint_response_4),
+            #                        remapping={'times':'move_to_place_object_relase_pose_traj_times'},
+            #                        transitions={'succeeded':'OPEN_GRIPPER'})
             
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_PLACE_OBJECT_RELEASE_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_ik_joint_response_3',
-                                                                            'left_limb_ik_joint_response_4',
-                                                                            'times'],
-                                                              points_cb = lambda ud: ud.left_limb_ik_joint_response_3 +
-                                                                                     ud.left_limb_ik_joint_response_4),
-                                   remapping={'times':'left_limb_move_to_place_object_relase_pose_traj_times'},
-                                   transitions={'succeeded':'LEFT_LIMB_OPEN_GRIPPER'})
+            smach.StateMachine.add('MOVE_TO_PLACE_OBJECT_RELEASE_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_4'},
+                                   transitions={'succeeded':'OPEN_GRIPPER'})
             
-            smach.StateMachine.add('LEFT_LIMB_OPEN_GRIPPER',
+            smach.StateMachine.add('OPEN_GRIPPER',
                                    GripperInterfaceState(left_gripper_interface, 'open'),
-                                   transitions={'succeeded':'LEFT_LIMB_MOVE_TO_RELEASED_OBJECT_HOVER_POSE'})
+                                   transitions={'succeeded':'IK_PLACE_OBJECT_RELEASED_HOVER_POSE'})
             
-            sm.userdata.left_limb_move_to_released_object_hover_pose_traj_times = [0.0, 12.0]
+            smach.StateMachine.add('IK_PLACE_OBJECT_RELEASED_HOVER_POSE',
+                                   PoseToJointTrajServiceState(left_limb_ik_service_proxy),
+                                   remapping={'poses':'block_model_place_pose',
+                                              'offsets':'hover_offset',
+                                              'joints':'ik_joint_response_5'},
+                                   transitions={'succeeded':'MOVE_TO_RELEASED_OBJECT_HOVER_POSE'})
             
-            smach.StateMachine.add('LEFT_LIMB_MOVE_TO_RELEASED_OBJECT_HOVER_POSE',
-                                   FollowJointTrajActionState(left_traj_client,
-                                                              input_keys = ['left_limb_ik_joint_response_3',
-                                                                            'left_limb_ik_joint_response_4',
-                                                                            'times'],
-                                                              points_cb = lambda ud: ud.left_limb_ik_joint_response_4 +
-                                                                                     ud.left_limb_ik_joint_response_3),
-                                   remapping={'times':'left_limb_move_to_released_object_hover_pose_traj_times'},
+            # sm_place_block.userdata.move_to_released_object_hover_pose_traj_times = [0.0, 12.0]
+            # 
+            # smach.StateMachine.add('MOVE_TO_RELEASED_OBJECT_HOVER_POSE',
+            #                        FollowJointTrajActionState(left_traj_client,
+            #                                                   input_keys = ['ik_joint_response_3',
+            #                                                                 'ik_joint_response_4',
+            #                                                                 'times'],
+            #                                                   points_cb = lambda ud: ud.ik_joint_response_4 +
+            #                                                                          ud.ik_joint_response_3),
+            #                        remapping={'times':'move_to_released_object_hover_pose_traj_times'},
+            #                        transitions={'succeeded':'succeeded'})
+            
+            smach.StateMachine.add('MOVE_TO_RELEASED_OBJECT_HOVER_POSE',
+                                   MoveToJointPositionsState(left_limb_interface),
+                                   remapping={'positions':'ik_joint_response_5'},
                                    transitions={'succeeded':'succeeded'})
         
-        smach.StateMachine.add('PLACE_BLOCK', sm_place_block, 
+        smach.StateMachine.add('PLACE_BLOCK', sm_place_block,
                                transitions={'succeeded':'succeeded'}) 
         
         
@@ -713,7 +867,7 @@ def main():
 
     outcome = sm.execute()
     
-    print("Baxter SMACH Inverse Kinematics Service Test Complete. Ctrl-C to exit.")
+    print("Baxter SMACH Pick and Place Test Complete. Ctrl-C to exit.")
     
     rospy.spin()
 
