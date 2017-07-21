@@ -1,0 +1,55 @@
+{% include "State.jinja" %}
+
+{% block class_defs %}
+{% if 'class_GripperInterfaceState' not in defined_headers %}
+class GripperInterfaceState(smach.State):
+    def __init__(self, gripper_interface, command):
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'])
+        self._gripper_interface = gripper_interface
+        self._command = command
+
+    def execute(self, userdata):
+        # Parse command
+        command = self._command
+        if isinstance(command, str):
+            pass
+        elif isinstance(command, list):
+            if isinstance(command[0], str):
+                command = command[0]
+            else:
+                return 'aborted'
+        else:
+            return 'aborted'
+
+        if command == 'open':
+            self._gripper_interface.open()
+            rospy.sleep(1.0)
+        elif command == 'close':
+            self._gripper_interface.close()
+            rospy.sleep(1.0)
+        else:
+            return 'aborted'
+
+        return 'succeeded'
+{% do defined_headers.append('class_GripperInterfaceState') %}
+{% endif %}
+{% endblock class_defs %}
+
+{% block main_def %}
+{% if 'gripper_interfaces' not in defined_headers %}
+print("Initializing interfaces for each gripper... ")
+left_gripper_interface = baxter_interface.Gripper('left')
+right_gripper_interface = baxter_interface.Gripper('right')
+{% do defined_headers.append('gripper_interfaces') %}
+{% endif %}
+{% endblock main_def %}
+
+{% block header %}
+{% endblock header %}
+
+{% block body %}
+smach.{{ parent_type }}.add('{{ name }}',
+{{ '' | indent(23, true) }}GripperInterfaceState({% if limb == 'left' %}left_gripper_interface{% elif limb == 'right' %}right_gripper_interface{% endif %}, '{{ command }}'){% if transitions is defined %},
+{{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
+{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{% endblock body %}
