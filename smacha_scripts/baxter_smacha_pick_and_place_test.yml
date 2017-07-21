@@ -41,7 +41,7 @@ states:
       outcomes: [succeeded, aborted, preempted]
       input_keys: [block_model_pick_pose, overhead_orientation, hover_offset, joint_start_positions]
       output_keys: [ik_joint_response_block_pick_hover_pose, ik_joint_response_block_pick_pose]
-      transitions: {succeeded: succeeded}
+      transitions: {succeeded: PLACE_BLOCK}
       states:
         - IK_PICK_BLOCK_HOVER_POSE:
             template: PoseToJointTrajServiceState
@@ -67,4 +67,68 @@ states:
             template: MoveToJointPositionsState
             limb: left
             remapping: {positions: ik_joint_response_block_pick_pose}
+            transitions: {succeeded: CLOSE_GRIPPER}
+        
+        - CLOSE_GRIPPER: {template: GripperInterfaceState, limb: left, command: close, transitions: {succeeded: READ_GRIPPED_BLOCK_ENDPOINT_POSE}}
+            
+        - READ_GRIPPED_BLOCK_ENDPOINT_POSE:
+            template: ReadEndpointPoseState
+            limb: left
+            remapping: {pose: gripped_block_endpoint_pose}
+            transitions: {succeeded: IK_PICK_GRIPPED_BLOCK_HOVER_POSE}
+            
+        - IK_PICK_GRIPPED_BLOCK_HOVER_POSE:
+            template: PoseToJointTrajServiceState
+            limb: left
+            remapping: {poses: gripped_block_endpoint_pose, offsets: hover_offset, joints: ik_joint_response_gripped_block_hover_pose}
+            transitions: {succeeded: MOVE_TO_GRIPPED_BLOCK_HOVER_POSE}
+
+        - MOVE_TO_GRIPPED_BLOCK_HOVER_POSE:
+            template: MoveToJointPositionsState
+            limb: left
+            remapping: {positions: ik_joint_response_gripped_block_hover_pose}
+            transitions: {succeeded: succeeded}
+
+  - PLACE_BLOCK:
+      template: StateMachine
+      outcomes: [succeeded, aborted, preempted]
+      input_keys: [block_model_place_pose, overhead_orientation, hover_offset,
+                   ik_joint_response_block_pick_hover_pose, ik_joint_response_block_pick_pose]
+      states:
+        - IK_PLACE_BLOCK_HOVER_POSE:
+            template: PoseToJointTrajServiceState
+            limb: left
+            remapping: {poses: block_model_place_pose, offsets: hover_offset, joints: ik_joint_response_block_place_hover_pose}
+            transitions: {succeeded: MOVE_TO_PLACE_BLOCK_HOVER_POSE}
+            
+        - MOVE_TO_PLACE_BLOCK_HOVER_POSE:
+            template: MoveToJointPositionsState
+            limb: left
+            remapping: {positions: ik_joint_response_block_place_hover_pose}
+            transitions: {succeeded: IK_PLACE_BLOCK_RELEASE_POSE}
+            
+        - IK_PLACE_BLOCK_RELEASE_POSE:
+            template: PoseToJointTrajServiceState
+            limb: left
+            remapping: {poses: block_model_place_pose, joints: ik_joint_response_block_place_pose}
+            transitions: {succeeded: MOVE_TO_PLACE_BLOCK_RELEASE_POSE}
+            
+        - MOVE_TO_PLACE_BLOCK_RELEASE_POSE:
+            template: MoveToJointPositionsState
+            limb: left
+            remapping: {positions: ik_joint_response_block_place_pose}
+            transitions: {succeeded: OPEN_GRIPPER}
+            
+        - OPEN_GRIPPER: {template: GripperInterfaceState, limb: left, command: open, transitions: {succeeded: IK_PLACE_BLOCK_RELEASED_HOVER_POSE}}
+            
+        - IK_PLACE_BLOCK_RELEASED_HOVER_POSE:
+            template: PoseToJointTrajServiceState
+            limb: left
+            remapping: {poses: block_model_place_pose, offsets: hover_offset, joints: ik_joint_response_block_released_hover_pose}
+            transitions: {succeeded: MOVE_TO_RELEASED_BLOCK_HOVER_POSE}
+            
+        - MOVE_TO_RELEASED_BLOCK_HOVER_POSE:
+            template: MoveToJointPositionsState
+            limb: left
+            remapping: {positions: ik_joint_response_block_released_hover_pose}
             transitions: {succeeded: succeeded}

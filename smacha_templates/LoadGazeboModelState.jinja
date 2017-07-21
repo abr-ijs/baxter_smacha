@@ -106,6 +106,6 @@ smach.{{ parent_type }}.add('{{ name }}',
 {{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
 {% endblock body %}
 
-{% block base_footer %}
+{% block execute %}
 rospy.on_shutdown(lambda: delete_gazebo_model('{{ model_name }}'))
-{% endblock base_footer %}
+{% endblock execute %}

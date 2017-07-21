@@ -25,9 +25,8 @@ from baxter_interface import CHECK_VERSION
     rs.enable()
 {% endblock main_def %}
 
-{% block base_footer %}
-{{ super() }}
-
+{% block execute %}
     # Disable robot
     rospy.on_shutdown(rs.disable)
-{% endblock base_footer %}
+{{ super() }}
+{% endblock execute %}

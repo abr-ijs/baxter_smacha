@@ -1,0 +1,60 @@
+{% include "State.jinja" %}
+
+{% block imports %}
+{% if 'geometry_msgs_msg_import' not in defined_headers %}
+from geometry_msgs.msg import (
+    PoseStamped,
+    Pose,
+    Point,
+    Quaternion,
+)
+{% do defined_headers.append('geometry_msgs_msg_import') %}
+{% endif %}
+{% endblock imports %}
+
+{% block class_defs %}
+{% if 'class_ReadEndpointPoseState' not in defined_headers %}
+class ReadEndpointPoseState(smach.State):
+    def __init__(self, limb_interface, output_keys = ['pose']):
+        smach.State.__init__(self, outcomes=['succeeded', 'aborted'], output_keys=output_keys)
+        self._limb_interface = limb_interface
+
+    def execute(self, userdata):
+        current_pose = self._limb_interface.endpoint_pose()
+
+        pose = Pose()
+        pose.position.x = current_pose['position'].x
+        pose.position.y = current_pose['position'].y
+        pose.position.z = current_pose['position'].z
+        pose.orientation.x = current_pose['orientation'].x
+        pose.orientation.y = current_pose['orientation'].y
+        pose.orientation.z = current_pose['orientation'].z
+        pose.orientation.w = current_pose['orientation'].w
+
+        userdata.pose = pose
+
+        return 'succeeded'
+{% do defined_headers.append('class_ReadEndpointPoseState') %}
+{% endif %}
+{% endblock class_defs %}
+
+{% block main_def %}
+{% if 'limb_interfaces' not in defined_headers %}
+print("Initializing interfaces for each limb... ")
+left_limb_interface = baxter_interface.Limb('left')
+right_limb_interface = baxter_interface.Limb('right')
+{% do defined_headers.append('limb_interfaces') %}
+{% endif %}
+{% endblock main_def %}
+
+{% block header %}
+{% endblock header %}
+
+{% block body %}
+smach.{{ parent_type }}.add('{{ name }}',
+{{ '' | indent(23, true) }}ReadEndpointPoseState({% if limb == 'left' %}left_limb_interface{% elif limb == 'right' %}right_limb_interface{% endif %}){% if transitions is defined %},
+{{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
+{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
+{{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
+{{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{% endblock body %}

@@ -20,6 +20,15 @@ from baxter_core_msgs.srv import (
 )
 {% do defined_headers.append('baxter_core_msgs_srv_import') %}
 {% endif %}
+{% if 'geometry_msgs_msg_import' not in defined_headers %}
+from geometry_msgs.msg import (
+    PoseStamped,
+    Pose,
+    Point,
+    Quaternion,
+)
+{% do defined_headers.append('geometry_msgs_msg_import') %}
+{% endif %}
 {% endblock imports %}
 
 {% block class_defs %}
