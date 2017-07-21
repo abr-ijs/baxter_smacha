@@ -237,6 +237,18 @@ class LoadGazeboModelState(smach.State):
         else:
             return 'aborted'
 
+        # Parse reference_frame
+        reference_frame = userdata.reference_frame
+        if isinstance(reference_frame, str):
+            pass
+        elif isinstance(reference_frame, list):
+            if isinstance(reference_frame[0], str):
+                reference_frame = reference_frame[0]
+            else:
+                return 'aborted'
+        else:
+            return 'aborted'
+
         # Load model SDF/URDF XML
         model_xml = ''
         with open(self._model_path, 'r') as model_file:
@@ -251,7 +263,7 @@ class LoadGazeboModelState(smach.State):
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
             spawn_response = spawn_service_proxy(self._name, model_xml, "/",
-                                                 pose, userdata.reference_frame)
+                                                 pose, reference_frame)
         except rospy.ServiceException, e:
             rospy.logerr('Spawn ' + spawn_service_type.upper() + ' service call failed: {0}'.format(e))
 
@@ -272,10 +284,22 @@ class GripperInterfaceState(smach.State):
         self._command = command
 
     def execute(self, userdata):
-        if self._command == 'open':
+        # Parse command
+        command = self._command
+        if isinstance(command, str):
+            pass
+        elif isinstance(command, list):
+            if isinstance(command[0], str):
+                command = command[0]
+            else:
+                return 'aborted'
+        else:
+            return 'aborted'
+
+        if command == 'open':
             self._gripper_interface.open()
             rospy.sleep(1.0)
-        elif self._command == 'close':
+        elif command == 'close':
             self._gripper_interface.close()
             rospy.sleep(1.0)
         else:
@@ -337,7 +361,7 @@ def main():
         sm.userdata.hover_offset = [[0.0, 0.0, 0.15], [0.0, 0.0, 0.0, 0.0]]
 
         sm.userdata.table_model_pose_world = Pose(position=Point(x=1.0, y=0.0, z=0.0))
-        sm.userdata.table_model_ref_frame = 'world'
+        sm.userdata.table_model_ref_frame = ['world']
             
         smach.StateMachine.add('LOAD_TABLE_MODEL',
                                LoadGazeboModelState('cafe_table',
@@ -347,7 +371,7 @@ def main():
                                transitions={'succeeded':'LOAD_BLOCK_MODEL'})
         
         sm.userdata.block_model_pick_pose_world = [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
-        sm.userdata.block_model_pick_ref_frame = 'world'
+        sm.userdata.block_model_pick_ref_frame = ['world']
         sm.userdata.block_model_pick_pose = [[0.7, 0.15, -0.129], sm.userdata.overhead_orientation]
         sm.userdata.block_model_place_pose = [[0.75, 0.0, -0.129], sm.userdata.overhead_orientation]
         
@@ -467,7 +491,7 @@ def main():
                                    transitions={'succeeded':'OPEN_GRIPPER'})
             
             smach.StateMachine.add('OPEN_GRIPPER',
-                                   GripperInterfaceState(left_gripper_interface, 'open'),
+                                   GripperInterfaceState(left_gripper_interface, ['open']),
                                    transitions={'succeeded':'IK_PLACE_BLOCK_RELEASED_HOVER_POSE'})
             
             smach.StateMachine.add('IK_PLACE_BLOCK_RELEASED_HOVER_POSE',

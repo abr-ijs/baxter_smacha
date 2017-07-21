@@ -24,10 +24,10 @@ states:
       userdata: 
         block_model_pick_pose_world: [[0.6725, 0.1265, 0.7825], [0.0, 0.0, 0.0, 0.0]]
         block_model_pick_ref_frame: world
-        block_model_pick_pose: [[0.7, 0.15, -0.129], sm.userdata.overhead_orientation]
-        block_model_place_pose: [[0.75, 0.0, -0.129], sm.userdata.overhead_orientation]
-      remapping: {pose: block_model_pose_world, reference_frame: block_model_ref_frame}
-      transitions: {succeeded: succeeded}
+        block_model_pick_pose: [[0.7, 0.15, -0.129], [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]]
+        block_model_place_pose: [[0.75, 0.0, -0.129], [-0.0249590815779, 0.999649402929, 0.00737916180073, 0.00486450832011]]
+      remapping: {pose: block_model_pick_pose_world, reference_frame: block_model_pick_ref_frame}
+      transitions: {succeeded: MOVE_TO_START_POSITION}
   
   - MOVE_TO_START_POSITION:
       template: MoveToJointPositionsState
@@ -41,7 +41,7 @@ states:
       outcomes: [succeeded, aborted, preempted]
       input_keys: [block_model_pick_pose, overhead_orientation, hover_offset, joint_start_positions]
       output_keys: [ik_joint_response_block_pick_hover_pose, ik_joint_response_block_pick_pose]
-      transitions: {succeeded: PLACE_BLOCK}
+      transitions: {succeeded: succeeded}
       states:
         - IK_PICK_BLOCK_HOVER_POSE:
             template: PoseToJointTrajServiceState
@@ -55,4 +55,16 @@ states:
             remapping: {positions: ik_joint_response_block_pick_hover_pose}
             transitions: {succeeded: OPEN_GRIPPER}
         
-        - OPEN_GRIPPER: {template: GripperInterfaceState, limb: left, command: open, transitions: {succeeded: succeeded}}
+        - OPEN_GRIPPER: {template: GripperInterfaceState, limb: left, command: open, transitions: {succeeded: IK_PICK_BLOCK_GRIP_POSE}}
+        
+        - IK_PICK_BLOCK_GRIP_POSE:    
+            template: PoseToJointTrajServiceState
+            limb: left
+            remapping: {poses: block_model_pick_pose, joints: ik_joint_response_block_pick_pose}
+            transitions: {succeeded: MOVE_TO_PICK_BLOCK_GRIP_POSE}
+
+        - MOVE_TO_PICK_BLOCK_GRIP_POSE:
+            template: MoveToJointPositionsState
+            limb: left
+            remapping: {positions: ik_joint_response_block_pick_pose}
+            transitions: {succeeded: succeeded}

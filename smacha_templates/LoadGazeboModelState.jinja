@@ -1,6 +1,10 @@
 {% include "State.jinja" %}
 
-{% block base_header %}
+{% block imports %}
+{% if 'import_os' not in defined_headers %}
+import os
+{% do defined_headers.append('import os') %}
+{% endif %}
 {% if 'gazebo_msgs_srv_import' not in defined_headers %}
 from gazebo_msgs.srv import (
     SpawnModel,
@@ -8,7 +12,21 @@ from gazebo_msgs.srv import (
 )
 {% do defined_headers.append('gazebo_msgs_srv_import') %}
 {% endif %}
+{% endblock imports %}
 
+{% block defs %}
+{% if 'def_delete_gazebo_model' not in defined_headers %}
+def delete_gazebo_model(model):
+    try:
+        delete_model = rospy.ServiceProxy('/gazebo/delete_model', DeleteModel)
+        resp_delete = delete_model(model)
+    except rospy.ServiceException, e:
+        rospy.loginfo("Delete Model service call failed: {0}".format(e))
+{% do defined_headers.append('def_delete_gazebo_model') %}
+{% endif %}
+{% endblock defs %}
+
+{% block class_defs %}
 {% if 'class_LoadGazeboModelState' not in defined_headers %}
 class LoadGazeboModelState(smach.State):
     def __init__(self, name, model_path, input_keys = ['pose', 'reference_frame'], pose_cb = None):
@@ -40,6 +58,18 @@ class LoadGazeboModelState(smach.State):
         else:
             return 'aborted'
 
+        # Parse reference_frame
+        reference_frame = userdata.reference_frame
+        if isinstance(reference_frame, str):
+            pass
+        elif isinstance(reference_frame, list):
+            if isinstance(reference_frame[0], str):
+                reference_frame = reference_frame[0]
+            else:
+                return 'aborted'
+        else:
+            return 'aborted'
+
         # Load model SDF/URDF XML
         model_xml = ''
         with open(self._model_path, 'r') as model_file:
@@ -54,30 +84,22 @@ class LoadGazeboModelState(smach.State):
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
             spawn_response = spawn_service_proxy(self._name, model_xml, "/",
-                                                 pose, userdata.reference_frame)
+                                                 pose, reference_frame)
         except rospy.ServiceException, e:
             rospy.logerr('Spawn ' + spawn_service_type.upper() + ' service call failed: {0}'.format(e))
 
         return 'succeeded'
 {% do defined_headers.append('class_LoadGazeboModelState') %}
 {% endif %}
+{% endblock class_defs %}
 
-
-{% if 'def_delete_gazebo_model' not in defined_headers %}
-def delete_gazebo_model(model):
-    try:
-        delete_model = rospy.ServiceProxy('/gazebo/delete_model', DeleteModel)
-        resp_delete = delete_model(model)
-    except rospy.ServiceException, e:
-        rospy.loginfo("Delete Model service call failed: {0}".format(e))
-{% do defined_headers.append('def_delete_gazebo_model') %}
-{% endif %}
-{% endblock base_header %}
+{% block header %}
+{% endblock header %}
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}LoadGazeboModelState('{{ model_name }}',
-                                                {{ model_path }}){% if transitions is defined %},
+{{ '' | indent(23, true) }}LoadGazeboModelState({% if model_name is not_string %}{{ model_name }}{% else %}'{{ model_name }}'{% endif %},
+                                                {% if model_path is not_string %}{{ model_path }}{% else %}'{{ model_path }}'{% endif %}){% if transitions is defined %},
 {{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
 {{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
 {{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
