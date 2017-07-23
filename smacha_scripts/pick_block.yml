@@ -2,7 +2,6 @@
     template: StateMachine
     outcomes: [succeeded, aborted, preempted]
     input_keys: [pick_pose, hover_offset]
-    output_keys: [ik_joint_response_block_pick_hover_pose, ik_joint_response_block_pick_pose]
     transitions: {succeeded: succeeded}
     states:
       - IK_PICK_BLOCK_HOVER_POSE:
