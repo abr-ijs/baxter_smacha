@@ -1,0 +1,52 @@
+- PICK_BLOCK:
+    template: StateMachine
+    outcomes: [succeeded, aborted, preempted]
+    input_keys: [pick_pose, hover_offset]
+    output_keys: [ik_joint_response_block_pick_hover_pose, ik_joint_response_block_pick_pose]
+    transitions: {succeeded: succeeded}
+    states:
+      - IK_PICK_BLOCK_HOVER_POSE:
+          template: PoseToJointTrajServiceState
+          limb: left
+          remapping: {poses: pick_pose, offsets: hover_offset, joints: ik_joint_response_block_pick_hover_pose}
+          transitions: {succeeded: MOVE_TO_PICK_BLOCK_HOVER_POSE}
+
+      - MOVE_TO_PICK_BLOCK_HOVER_POSE:
+          template: MoveToJointPositionsState
+          limb: left
+          remapping: {positions: ik_joint_response_block_pick_hover_pose}
+          transitions: {succeeded: OPEN_GRIPPER}
+      
+      - OPEN_GRIPPER: {template: GripperInterfaceState, limb: left, command: open, transitions: {succeeded: IK_PICK_BLOCK_GRIP_POSE}}
+      
+      - IK_PICK_BLOCK_GRIP_POSE:    
+          template: PoseToJointTrajServiceState
+          limb: left
+          remapping: {poses: pick_pose, joints: ik_joint_response_block_pick_pose}
+          transitions: {succeeded: MOVE_TO_PICK_BLOCK_GRIP_POSE}
+
+      - MOVE_TO_PICK_BLOCK_GRIP_POSE:
+          template: MoveToJointPositionsState
+          limb: left
+          remapping: {positions: ik_joint_response_block_pick_pose}
+          transitions: {succeeded: CLOSE_GRIPPER}
+      
+      - CLOSE_GRIPPER: {template: GripperInterfaceState, limb: left, command: close, transitions: {succeeded: READ_GRIPPED_BLOCK_ENDPOINT_POSE}}
+          
+      - READ_GRIPPED_BLOCK_ENDPOINT_POSE:
+          template: ReadEndpointPoseState
+          limb: left
+          remapping: {pose: gripped_block_endpoint_pose}
+          transitions: {succeeded: IK_PICK_GRIPPED_BLOCK_HOVER_POSE}
+          
+      - IK_PICK_GRIPPED_BLOCK_HOVER_POSE:
+          template: PoseToJointTrajServiceState
+          limb: left
+          remapping: {poses: gripped_block_endpoint_pose, offsets: hover_offset, joints: ik_joint_response_gripped_block_hover_pose}
+          transitions: {succeeded: MOVE_TO_GRIPPED_BLOCK_HOVER_POSE}
+
+      - MOVE_TO_GRIPPED_BLOCK_HOVER_POSE:
+          template: MoveToJointPositionsState
+          limb: left
+          remapping: {positions: ik_joint_response_gripped_block_hover_pose}
+          transitions: {succeeded: succeeded}
