@@ -40,11 +40,11 @@ states:
       transitions: {succeeded: PICK_BLOCK}
   
   - PICK_BLOCK:
-      script: pick_block
+      script: pick_block_simplified
       remapping: {pick_pose: block_model_pick_pose, hover_offset: hover_offset}
       transitions: {succeeded: PLACE_BLOCK}
 
   - PLACE_BLOCK:
-      script: place_block
+      script: place_block_simplified
       remapping: {place_pose: block_model_place_pose, hover_offset: hover_offset}
       transitions: {succeeded: succeeded}

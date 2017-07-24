@@ -56,11 +56,11 @@ states:
       transitions: {succeeded: PICK_AND_PLACE_BLOCK_2}
       states:
         - PICK_BLOCK:
-            script: pick_block
+            script: pick_block_simplified
             transitions: {succeeded: PLACE_BLOCK}
 
         - PLACE_BLOCK:
-            script: place_block
+            script: place_block_simplified
             transitions: {succeeded: succeeded}
   
   - PICK_AND_PLACE_BLOCK_2:
@@ -71,9 +71,9 @@ states:
       transitions: {succeeded: succeeded}
       states:
         - PICK_BLOCK:
-            script: pick_block
+            script: pick_block_simplified
             transitions: {succeeded: PLACE_BLOCK}
 
         - PLACE_BLOCK:
-            script: place_block
+            script: place_block_simplified
             transitions: {succeeded: succeeded}
