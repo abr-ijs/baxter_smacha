@@ -1,14 +1,16 @@
+# SMACHA sub-script for picking up a block object at a specified location
+# and placing it at another specified location using the Baxter simulator.
 - PICK_AND_PLACE_BLOCK:
     template: StateMachine
     outcomes: [succeeded, aborted, preempted]
-    input_keys: [pick_pose, place_pose, hover_offset]
+    input_keys: [limb, pick_pose, place_pose, hover_offset]
     remapping: {pick_pose: pick_pose, place_pose: place_pose, hover_offset: hover_offset}
     transitions: {succeeded: succeeded}
     states:
       - PICK_BLOCK:
-          script: pick_block_simplified
+          script: pick_block
           transitions: {succeeded: PLACE_BLOCK}
 
       - PLACE_BLOCK:
-          script: place_block_simplified
+          script: place_block
           transitions: {succeeded: succeeded}

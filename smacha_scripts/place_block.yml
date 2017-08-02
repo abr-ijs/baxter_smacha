@@ -1,43 +1,38 @@
+# SMACHA sub-script for placing a gripped block at a specified location
+# using the Baxter simulator.
 - PLACE_BLOCK:
     template: StateMachine
     outcomes: [succeeded, aborted, preempted]
-    input_keys: [place_pose, hover_offset]
+    userdata: {open_command: open}
+    input_keys: [limb, place_pose, hover_offset]
     transitions: {succeeded: succeeded}
     states:
       - IK_PLACE_BLOCK_HOVER_POSE:
           template: PoseToJointTrajServiceState
-          limb: left
-          remapping: {poses: place_pose, offsets: hover_offset, joints: ik_joint_response_block_place_hover_pose}
+          remapping: {limb: limb, poses: place_pose, offsets: hover_offset, joints: ik_joint_response_block_place_hover_pose}
           transitions: {succeeded: MOVE_TO_PLACE_BLOCK_HOVER_POSE}
           
       - MOVE_TO_PLACE_BLOCK_HOVER_POSE:
           template: MoveToJointPositionsState
-          limb: left
-          remapping: {positions: ik_joint_response_block_place_hover_pose}
+          remapping: {limb: limb, positions: ik_joint_response_block_place_hover_pose}
           transitions: {succeeded: IK_PLACE_BLOCK_RELEASE_POSE}
           
       - IK_PLACE_BLOCK_RELEASE_POSE:
           template: PoseToJointTrajServiceState
-          limb: left
-          remapping: {poses: place_pose, joints: ik_joint_response_block_place_pose}
+          remapping: {limb: limb, poses: place_pose, joints: ik_joint_response_block_place_pose}
           transitions: {succeeded: MOVE_TO_PLACE_BLOCK_RELEASE_POSE}
           
       - MOVE_TO_PLACE_BLOCK_RELEASE_POSE:
           template: MoveToJointPositionsState
-          limb: left
-          remapping: {positions: ik_joint_response_block_place_pose}
+          remapping: {limb: limb, positions: ik_joint_response_block_place_pose}
           transitions: {succeeded: OPEN_GRIPPER}
           
-      - OPEN_GRIPPER: {template: GripperInterfaceState, limb: left, command: open, transitions: {succeeded: IK_PLACE_BLOCK_RELEASED_HOVER_POSE}}
-          
-      - IK_PLACE_BLOCK_RELEASED_HOVER_POSE:
-          template: PoseToJointTrajServiceState
-          limb: left
-          remapping: {poses: place_pose, offsets: hover_offset, joints: ik_joint_response_block_released_hover_pose}
+      - OPEN_GRIPPER: 
+          template: GripperInterfaceState
+          remapping: {limb: limb, command: open_command}
           transitions: {succeeded: MOVE_TO_RELEASED_BLOCK_HOVER_POSE}
           
       - MOVE_TO_RELEASED_BLOCK_HOVER_POSE:
           template: MoveToJointPositionsState
-          limb: left
-          remapping: {positions: ik_joint_response_block_released_hover_pose}
+          remapping: {limb: limb, positions: ik_joint_response_block_place_hover_pose}
           transitions: {succeeded: succeeded}

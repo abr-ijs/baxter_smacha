@@ -4,7 +4,7 @@ template: BaxterBase
 node_name: baxter_smach_pick_and_place_test
 outcomes: [succeeded, aborted, preempted]
 userdata:
-  overhead_orientation: [-0.02496, 0.99965, 0.00738, 0.00486]
+  limb: left
   hover_offset: [[0.0, 0.0, 0.15], [0.0, 0.0, 0.0, 0.0]]
 states:
   - LOAD_TABLE_MODEL:
@@ -33,18 +33,17 @@ states:
   
   - MOVE_TO_START_POSITION:
       template: MoveToJointPositionsState
-      limb: left
       userdata: {joint_start_positions:
                   [-0.08000, -0.99998, -1.18997, 1.94002, 0.67000, 1.03001, -0.50000]}
-      remapping: {positions: joint_start_positions}
+      remapping: {limb: limb, positions: joint_start_positions}
       transitions: {succeeded: PICK_BLOCK}
   
   - PICK_BLOCK:
-      script: pick_block_simplified
-      remapping: {pick_pose: block_model_pick_pose, hover_offset: hover_offset}
+      script: pick_block
+      remapping: {limb: limb, pick_pose: block_model_pick_pose, hover_offset: hover_offset}
       transitions: {succeeded: PLACE_BLOCK}
 
   - PLACE_BLOCK:
-      script: place_block_simplified
-      remapping: {place_pose: block_model_place_pose, hover_offset: hover_offset}
+      script: place_block
+      remapping: {limb: limb, place_pose: block_model_place_pose, hover_offset: hover_offset}
       transitions: {succeeded: succeeded}

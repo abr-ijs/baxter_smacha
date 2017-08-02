@@ -1,4 +1,4 @@
---- # SMACHA test script using FollowJointTrajectoryAction with Baxter simulator
+--- # SMACHA demo script for using a FollowJointTrajectoryAction with the Baxter simulator.
 name: sm
 template: BaxterBase
 node_name: baxter_smacha_joint_traj_test
