@@ -3,14 +3,16 @@
 {% block class_defs %}
 {% if 'class_GripperInterfaceState' not in defined_headers %}
 class GripperInterfaceState(smach.State):
-    def __init__(self, gripper_interface, command):
-        smach.State.__init__(self, outcomes=['succeeded', 'aborted'])
-        self._gripper_interface = gripper_interface
-        self._command = command
+    def __init__(self, gripper_interfaces):
+        smach.State.__init__(self, input_keys = ['limb', 'command'], outcomes=['succeeded', 'aborted'])
+        self._gripper_interfaces = gripper_interfaces
 
     def execute(self, userdata):
+        # Get limb + command from userdata
+        limb = userdata.limb
+        command = userdata.command
+
         # Parse command
-        command = self._command
         if isinstance(command, str):
             pass
         elif isinstance(command, list):
@@ -22,10 +24,10 @@ class GripperInterfaceState(smach.State):
             return 'aborted'
 
         if command == 'open':
-            self._gripper_interface.open()
+            self._gripper_interfaces[limb].open()
             rospy.sleep(1.0)
         elif command == 'close':
-            self._gripper_interface.close()
+            self._gripper_interfaces[limb].close()
             rospy.sleep(1.0)
         else:
             return 'aborted'
@@ -38,8 +40,9 @@ class GripperInterfaceState(smach.State):
 {% block main_def %}
 {% if 'gripper_interfaces' not in defined_headers %}
 print("Initializing interfaces for each gripper... ")
-left_gripper_interface = baxter_interface.Gripper('left')
-right_gripper_interface = baxter_interface.Gripper('right')
+gripper_interfaces = dict()
+gripper_interfaces['left'] = baxter_interface.Gripper('left')
+gripper_interfaces['right'] = baxter_interface.Gripper('right')
 {% do defined_headers.append('gripper_interfaces') %}
 {% endif %}
 {% endblock main_def %}
@@ -49,7 +52,9 @@ right_gripper_interface = baxter_interface.Gripper('right')
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}GripperInterfaceState({% if limb == 'left' %}left_gripper_interface{% elif limb == 'right' %}right_gripper_interface{% endif %}, '{{ command }}'){% if transitions is defined %},
+{{ '' | indent(23, true) }}GripperInterfaceState(gripper_interfaces){% if transitions is defined %},
 {{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
-{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
+{{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
+{{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
 {% endblock body %}

@@ -14,15 +14,18 @@ class MoveToJointPositionsState(smach.State):
 
         Note that this state does not make use of the joint trajectory action server.
     """
-    def __init__(self, limb_interface, timeout=15.0, input_keys = ['positions'], positions_cb = None):
+    def __init__(self, limb_interfaces, timeout=15.0, input_keys = ['limb', 'positions'], positions_cb = None):
         smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys)
-        self._limb_interface = limb_interface
+        self._limb_interfaces = limb_interfaces
         self._timeout = timeout
         
         # Set up a points callback
         self._positions_cb = positions_cb
 
     def execute(self, userdata):
+        # Get limb from userdata
+        limb = userdata.limb
+
         # If a positions callback has been defined, use it to format
         # positions specified by the input keys in the userdata
         if self._positions_cb:
@@ -38,14 +41,14 @@ class MoveToJointPositionsState(smach.State):
         # Parse positions
         if positions:
             if isinstance(positions, list):
-                limb_joint_names = [self._limb_interface.name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
+                limb_joint_names = [self._limb_interfaces[limb].name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
                 positions = dict(zip(limb_joint_names, positions))
             elif isinstance(positions, JointState):
                 positions = dict(zip(positions.name, positions.position))
             else:
                 return 'aborted'
 
-            self._limb_interface.move_to_joint_positions(positions, timeout=self._timeout)
+            self._limb_interfaces[limb].move_to_joint_positions(positions, timeout=self._timeout)
         else:
             return 'aborted'
 
@@ -57,8 +60,9 @@ class MoveToJointPositionsState(smach.State):
 {% block main_def %}
 {% if 'limb_interfaces' not in defined_headers %}
 print("Initializing interfaces for each limb... ")
-left_limb_interface = baxter_interface.Limb('left')
-right_limb_interface = baxter_interface.Limb('right')
+limb_interfaces = dict()
+limb_interfaces['left'] = baxter_interface.Limb('left')
+limb_interfaces['right'] = baxter_interface.Limb('right')
 {% do defined_headers.append('limb_interfaces') %}
 {% endif %}
 {% endblock main_def %}
@@ -68,7 +72,7 @@ right_limb_interface = baxter_interface.Limb('right')
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}MoveToJointPositionsState({% if limb == 'left' %}left_limb_interface{% elif limb == 'right' %}right_limb_interface{% endif %}{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if positions_cb is defined %}, positions_cb = {{ positions_cb }}{% endif %}){% if transitions is defined %},
+{{ '' | indent(23, true) }}MoveToJointPositionsState(limb_interfaces{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if positions_cb is defined %}, positions_cb = {{ positions_cb }}{% endif %}){% if transitions is defined %},
 {{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
 {{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
 {{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},

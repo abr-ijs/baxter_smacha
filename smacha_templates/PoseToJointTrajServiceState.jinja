@@ -34,10 +34,10 @@ from geometry_msgs.msg import (
 {% block class_defs %}
 {% if 'class_PoseToJointTrajServiceState' not in defined_headers %}
 class PoseToJointTrajServiceState(smach.State):
-    def __init__(self, ik_service_proxy, timeout=5.0,
-                 input_keys=['poses', 'offsets'], output_keys=['joints'], poses_cb = None, offsets_cb = None):
+    def __init__(self, ik_service_proxies, timeout=5.0,
+                 input_keys=['limb', 'poses', 'offsets'], output_keys=['joints'], poses_cb = None, offsets_cb = None):
         smach.State.__init__(self, outcomes=['succeeded', 'aborted'], input_keys=input_keys, output_keys=output_keys)
-        self._ik_service_proxy = ik_service_proxy
+        self._ik_service_proxies = ik_service_proxies
         self._timeout = timeout
         self._verbose = True
         
@@ -48,6 +48,9 @@ class PoseToJointTrajServiceState(smach.State):
         self._offsets_cb = offsets_cb
 
     def execute(self, userdata):
+        # Get limb from userdata
+        limb = userdata.limb
+
         # If a poses callback has been defined, use it to format
         # poses specified by the input keys in the userdata
         if self._poses_cb:
@@ -125,11 +128,11 @@ class PoseToJointTrajServiceState(smach.State):
             ik_request.pose_stamp.append(pose_stamped)
 
         # Wait for service (important!)
-        self._ik_service_proxy.wait_for_service(self._timeout)
+        self._ik_service_proxies[limb].wait_for_service(self._timeout)
 
         # Receive response
         try:
-            ik_response = self._ik_service_proxy(ik_request)
+            ik_response = self._ik_service_proxies[limb](ik_request)
         except (rospy.ServiceException, rospy.ROSException), e:
             rospy.logerr("Service call failed: %s" % (e,))
             return 'aborted'
@@ -169,8 +172,9 @@ class PoseToJointTrajServiceState(smach.State):
 {% block main_def %}
 {% if 'ik_service_proxies' not in defined_headers %}
 print("Initializing inverse kinematics service proxies for each limb... ")
-left_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
-right_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/right/PositionKinematicsNode/IKService', SolvePositionIK)
+ik_service_proxies = dict()
+ik_service_proxies['left'] = rospy.ServiceProxy('/ExternalTools/left/PositionKinematicsNode/IKService', SolvePositionIK)
+ik_service_proxies['right'] = rospy.ServiceProxy('/ExternalTools/right/PositionKinematicsNode/IKService', SolvePositionIK)
 {% do defined_headers.append('ik_service_proxies') %}
 {% endif %}
 {% endblock main_def %}
@@ -180,7 +184,7 @@ right_limb_ik_service_proxy = rospy.ServiceProxy('/ExternalTools/right/PositionK
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}PoseToJointTrajServiceState({% if limb == 'left' %}left_limb_ik_service_proxy{% elif limb == 'right' %}right_limb_ik_service_proxy{% endif %}{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if output_keys is defined %}, output_keys = {{ output_keys }}{% endif %}{% if poses_cb is defined %}, poses_cb = {{ poses_cb }}{% endif %}{% if offsets_cb is defined %}, offsets_cb = {{ offsets_cb }}{% endif %}){% if transitions is defined %},
+{{ '' | indent(23, true) }}PoseToJointTrajServiceState(ik_service_proxies{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if output_keys is defined %}, output_keys = {{ output_keys }}{% endif %}{% if poses_cb is defined %}, poses_cb = {{ poses_cb }}{% endif %}{% if offsets_cb is defined %}, offsets_cb = {{ offsets_cb }}{% endif %}){% if transitions is defined %},
 {{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
 {{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
 {{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
