@@ -427,7 +427,7 @@ def main():
                                           'positions':'joint_start_positions'})
         
         sm_pick_and_place_block_1 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                     input_keys=['limb', 'pick_pose', 'place_pose', 'hover_offset'])
+                                             input_keys = ['limb', 'pick_pose', 'place_pose', 'hover_offset'])
         
         
         
@@ -435,7 +435,7 @@ def main():
         with sm_pick_and_place_block_1:
         
             sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'pick_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'pick_pose', 'hover_offset'])
             
             
             
@@ -498,7 +498,7 @@ def main():
                                    transitions={'succeeded':'PLACE_BLOCK'})
             
             sm_place_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'place_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'place_pose', 'hover_offset'])
             
             
             
@@ -560,7 +560,7 @@ def main():
                                           'place_pose':'block_model_1_place_pose'})
         
         sm_pick_and_place_block_2 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                     input_keys=['limb', 'pick_pose', 'place_pose', 'hover_offset'])
+                                             input_keys = ['limb', 'pick_pose', 'place_pose', 'hover_offset'])
         
         
         
@@ -568,7 +568,7 @@ def main():
         with sm_pick_and_place_block_2:
         
             sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'pick_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'pick_pose', 'hover_offset'])
             
             
             
@@ -631,7 +631,7 @@ def main():
                                    transitions={'succeeded':'PLACE_BLOCK'})
             
             sm_place_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'place_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'place_pose', 'hover_offset'])
             
             
             
