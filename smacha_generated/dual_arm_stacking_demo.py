@@ -425,11 +425,11 @@ def main():
                                           'reference_frame':'block_model_2_ref_frame'})
         
         sm_pick_blocks = smach.Concurrence(outcomes=['succeeded', 'aborted', 'preempted'],
-                                   default_outcome='succeeded',
-                                   outcome_map={'succeeded':
-                                                   { 'PICK_BLOCK_1': 'succeeded',
-        'PICK_BLOCK_2': 'succeeded'}},
-                                   input_keys=['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_pick_pose', 'block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_pick_pose', 'hover_offset'])
+                                           default_outcome='succeeded',
+                                           outcome_map={'succeeded':
+                                                            { 'PICK_BLOCK_1': 'succeeded',
+                                                              'PICK_BLOCK_2': 'succeeded'}},
+                                           input_keys = ['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_pick_pose', 'block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_pick_pose', 'hover_offset'])
         
         
         
@@ -437,7 +437,7 @@ def main():
         with sm_pick_blocks:
         
             sm_pick_block_1 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_pick_pose', 'hover_offset'])
+                                                 input_keys = ['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_pick_pose', 'hover_offset'])
             
             
             
@@ -451,7 +451,7 @@ def main():
                                                   'positions':'left_limb_joint_start_positions'})
                 
                 sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                             input_keys=['limb', 'pick_pose', 'hover_offset'])
+                                                     input_keys = ['limb', 'pick_pose', 'hover_offset'])
                 
                 
                 
@@ -520,7 +520,7 @@ def main():
             smach.Concurrence.add('PICK_BLOCK_1', sm_pick_block_1)
             
             sm_pick_block_2 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_pick_pose', 'hover_offset'])
+                                                 input_keys = ['block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_pick_pose', 'hover_offset'])
             
             
             
@@ -534,7 +534,7 @@ def main():
                                                   'positions':'right_limb_joint_start_positions'})
                 
                 sm_pick_block = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                             input_keys=['limb', 'pick_pose', 'hover_offset'])
+                                                     input_keys = ['limb', 'pick_pose', 'hover_offset'])
                 
                 
                 
@@ -607,7 +607,7 @@ def main():
                                transitions={'succeeded':'STACK_BLOCKS'})
         
         sm_stack_blocks = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                     input_keys=['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_place_pose', 'block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_place_pose', 'hover_offset'])
+                                             input_keys = ['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_place_pose', 'block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_place_pose', 'hover_offset'])
         
         
         
@@ -615,7 +615,7 @@ def main():
         with sm_stack_blocks:
         
             sm_place_block_1 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'place_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'place_pose', 'hover_offset'])
             
             
             
@@ -679,7 +679,7 @@ def main():
                                               'positions':'left_limb_joint_start_positions'})
             
             sm_place_block_2 = smach.StateMachine(outcomes=['succeeded', 'aborted', 'preempted'],
-                                                         input_keys=['limb', 'place_pose', 'hover_offset'])
+                                                 input_keys = ['limb', 'place_pose', 'hover_offset'])
             
             
             
