@@ -1,3 +1,5 @@
+{% from "Utils.jinja" import render_input_keys, render_output_keys, render_transitions, render_remapping %}
+
 {% include "State.jinja" %}
 
 {% block imports %}
@@ -184,9 +186,11 @@ ik_service_proxies['right'] = rospy.ServiceProxy('/ExternalTools/right/PositionK
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}PoseToJointTrajServiceState(ik_service_proxies{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if output_keys is defined %}, output_keys = {{ output_keys }}{% endif %}{% if poses_cb is defined %}, poses_cb = {{ poses_cb }}{% endif %}{% if offsets_cb is defined %}, offsets_cb = {{ offsets_cb }}{% endif %}){% if transitions is defined %},
-{{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
-{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
-{{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
-{{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{{ '' | indent(23, true) }}PoseToJointTrajServiceState(ik_service_proxies{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %},
+{{ render_input_keys(input_keys) }}{% endif %}{% if output_keys is defined %},
+{{ render_output_keys(output_keys) }}{% endif %}{% if poses_cb is defined %},
+{{ 'poses_cb = ' | indent(51, true) }}{{ poses_cb }}{% endif %}{% if offsets_cb is defined %},
+{{ 'offsets_cb = ' | indent(51, true) }}{{ offsets_cb }}{% endif %}){% if transitions is defined %},
+{{ render_transitions(transitions) }}{% endif %}{% if remapping is defined %},
+{{ render_remapping(remapping) }}{% endif %})
 {% endblock body %}

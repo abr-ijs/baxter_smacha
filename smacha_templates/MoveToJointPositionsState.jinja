@@ -1,3 +1,5 @@
+{% from "Utils.jinja" import render_input_keys, render_transitions, render_remapping %}
+
 {% include "State.jinja" %}
 
 {% block imports %}
@@ -72,9 +74,8 @@ limb_interfaces['right'] = baxter_interface.Limb('right')
 
 {% block body %}
 smach.{{ parent_type }}.add('{{ name }}',
-{{ '' | indent(23, true) }}MoveToJointPositionsState(limb_interfaces{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %}, input_keys = {{ input_keys }}{% endif %}{% if positions_cb is defined %}, positions_cb = {{ positions_cb }}{% endif %}){% if transitions is defined %},
-{{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
-{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
-{{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
-{{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{{ '' | indent(23, true) }}MoveToJointPositionsState(limb_interfaces{% if timeout is defined %}, timeout = {{ timeout }}{% endif %}{% if input_keys is defined %},
+{{ render_input_keys(input_keys) }}{% endif %}{% if positions_cb is defined %}, positions_cb = {{ positions_cb }}{% endif %}){% if transitions is defined %},
+{{ render_transitions(transitions) }}{% endif %}{% if remapping is defined %},
+{{ render_remapping(remapping) }}{% endif %})
 {% endblock body %}

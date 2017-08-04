@@ -1,3 +1,5 @@
+{% from "Utils.jinja" import render_transitions, render_remapping %}
+
 {% include "State.jinja" %}
 
 {% block imports %}
@@ -100,10 +102,8 @@ class LoadGazeboModelState(smach.State):
 smach.{{ parent_type }}.add('{{ name }}',
 {{ '' | indent(23, true) }}LoadGazeboModelState({% if model_name is not_string %}{{ model_name }}{% else %}'{{ model_name }}'{% endif %},
                                                 {% if model_path is not_string %}{{ model_path }}{% else %}'{{ model_path }}'{% endif %}){% if transitions is defined %},
-{{ 'transitions=' | indent(23, true) }}{{ '{' }}{% for outcome, transition in transitions.items() | sort %}'{{ outcome }}':'{{ transition }}'{% if not loop.last %},
-{{ '' | indent(36, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %}{% if remapping is defined %},
-{{ 'remapping=' | indent(23, true) }}{{ '{' }}{% for state_key, userdata_key in remapping.items() | sort %}'{{ state_key }}':'{{ userdata_key }}'{% if not loop.last %},
-{{ '' | indent(34, true) }}{% endif %}{% endfor %}{{ '}' }}{% endif %})
+{{ render_transitions(transitions) }}{% endif %}{% if remapping is defined %},
+{{ render_remapping(remapping) }}{% endif %})
 {% endblock body %}
 
 {% block execute %}
