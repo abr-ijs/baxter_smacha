@@ -1,6 +1,6 @@
-{% from "Utils.jinja" import render_transitions, render_remapping %}
+{% from "Utils.tpl" import render_transitions, render_remapping %}
 
-{% include "State.jinja" %}
+{% include "State.tpl" %}
 
 {% block imports %}
 {% if 'import_os' not in defined_headers %}
