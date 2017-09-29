@@ -1,6 +1,6 @@
-{% from "Utils.jinja" import render_input_keys, render_transitions, render_remapping %}
+{% from "Utils.tpl" import render_input_keys, render_transitions, render_remapping %}
 
-{% include "State.jinja" %}
+{% include "State.tpl" %}
 
 {% block imports %}
 {% if 'sensor_msgs_msg_import_JointState' not in defined_headers %}
