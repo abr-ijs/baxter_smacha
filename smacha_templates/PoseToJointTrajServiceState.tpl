@@ -56,78 +56,102 @@ class PoseToJointTrajServiceState(smach.State):
         # If a poses callback has been defined, use it to format
         # poses specified by the input keys in the userdata
         if self._poses_cb:
-            poses = self._poses_cb(userdata)
+            try:
+                poses = self._poses_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using poses callback to format poses: ' + repr(e))
+                raise
         else:
-            poses = userdata.poses
+            if 'poses' in userdata:
+                poses = userdata.poses
+            else:
+                raise ValueError('Joint positions should be specified in userdata!')
         
         # If an offsets callback has been defined, use it to format
         # offsets specified by the input keys in the userdata
         if self._offsets_cb:
-            offsets = self._offsets_cb(userdata)
+            try:
+                offsets = self._offsets_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using offsets callback to format pose offsets: ' + repr(e))
+                raise
         else:
             if 'offsets' in userdata:
                 offsets = userdata.offsets
             else:
                 offsets = None
 
-        # Check if poses is a singleton and convert to list if necessary
-        if not isinstance(poses, list):
-            poses = [poses]
-        elif len(poses) == 2 and len(poses[0]) != len(poses[1]):
-            poses = [poses]
-        else:
-            return 'aborted'
+        # Check if poses is a list, singleton or otherwise, and convert if necessary
+        try:
+            if not isinstance(poses, list):
+                poses = [poses]
+            elif len(poses) == 2 and len(poses[0]) != len(poses[1]):
+                poses = [poses]
+            else:
+                raise ValueError('Poses should be specified as a list!')
+        except Exception as e:
+            rospy.logerr('Error when converting poses to a list: ' + repr(e))
+            raise
 
         # Check if offsets is a singleton and convert to list if necessary
         if offsets:
-            if not isinstance(offsets, list):
-                offsets = [offsets]
-            elif len(offsets) == 2 and len(offsets[0]) != len(offsets[1]):
-                offsets = [offsets]
-            else:
-                return 'aborted'
+            try:
+                if not isinstance(offsets, list):
+                    offsets = [offsets]
+                elif len(offsets) == 2 and len(offsets[0]) != len(offsets[1]):
+                    offsets = [offsets]
+                else:
+                    raise ValueError('Offsets should be specified as a list!')
+            except Exception as e:
+                rospy.logerr('Error when converting offsets to a list: ' + repr(e))
+                raise
         
         # Set up a request object
         ik_request = SolvePositionIKRequest()
 
         # Parse poses from userdata, stamp them, add offsets if required,
         # and append to inverse kinematics request.
-        header = Header(stamp=rospy.Time.now(), frame_id='base')
-        for i_pose in range(len(poses)):
-            # Parse pose
-            pose = poses[i_pose]
-            if isinstance(pose, PoseStamped):
-                pose_stamped = pose
-            elif isinstance(pose, Pose):
-                pose_stamped = PoseStamped(header=header, pose=pose)
-            elif isinstance(pose, list):
-                position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
-                orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
-                pose_stamped = PoseStamped(header=header, pose = Pose(position=position, orientation=orientation))
-            else:
-                return 'aborted'
+        try:
+            header = Header(stamp=rospy.Time.now(), frame_id='base')
+            for i_pose in range(len(poses)):
+                # Parse pose
+                pose = poses[i_pose]
+                if isinstance(pose, PoseStamped):
+                    pose_stamped = pose
+                elif isinstance(pose, Pose):
+                    pose_stamped = PoseStamped(header=header, pose=pose)
+                elif isinstance(pose, list):
+                    position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
+                    orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
+                    pose_stamped = PoseStamped(header=header, pose = Pose(position=position, orientation=orientation))
+                else:
+                    return 'aborted'
 
-            # Parse offset
-            if offsets:
-                offset = offsets[i_pose]
-                if isinstance(offset, PoseStamped):
-                    offset = offset.pose
-                elif isinstance(offset, Pose):
-                    pass
-                elif isinstance(offset, list):
-                    offset = Pose(position=Point(x=offset[0][0], y=offset[0][1], z=offset[0][2]),
-                                  orientation=Quaternion(x=offset[1][0], y=offset[1][1], z=offset[1][2], w=offset[1][3]))
+                # Parse offset
+                if offsets:
+                    offset = offsets[i_pose]
+                    if isinstance(offset, PoseStamped):
+                        offset = offset.pose
+                    elif isinstance(offset, Pose):
+                        pass
+                    elif isinstance(offset, list):
+                        offset = Pose(position=Point(x=offset[0][0], y=offset[0][1], z=offset[0][2]),
+                                      orientation=Quaternion(x=offset[1][0], y=offset[1][1], z=offset[1][2], w=offset[1][3]))
 
-                pose_stamped.pose.position.x = pose_stamped.pose.position.x + offset.position.x
-                pose_stamped.pose.position.y = pose_stamped.pose.position.y + offset.position.y
-                pose_stamped.pose.position.z = pose_stamped.pose.position.z + offset.position.z
-                pose_stamped.pose.orientation.x = pose_stamped.pose.orientation.x + offset.orientation.x
-                pose_stamped.pose.orientation.y = pose_stamped.pose.orientation.y + offset.orientation.y
-                pose_stamped.pose.orientation.z = pose_stamped.pose.orientation.z + offset.orientation.z
-                pose_stamped.pose.orientation.w = pose_stamped.pose.orientation.w + offset.orientation.w
+                    pose_stamped.pose.position.x = pose_stamped.pose.position.x + offset.position.x
+                    pose_stamped.pose.position.y = pose_stamped.pose.position.y + offset.position.y
+                    pose_stamped.pose.position.z = pose_stamped.pose.position.z + offset.position.z
+                    pose_stamped.pose.orientation.x = pose_stamped.pose.orientation.x + offset.orientation.x
+                    pose_stamped.pose.orientation.y = pose_stamped.pose.orientation.y + offset.orientation.y
+                    pose_stamped.pose.orientation.z = pose_stamped.pose.orientation.z + offset.orientation.z
+                    pose_stamped.pose.orientation.w = pose_stamped.pose.orientation.w + offset.orientation.w
 
-            # Append pose to IK request
-            ik_request.pose_stamp.append(pose_stamped)
+                # Append pose to IK request
+                ik_request.pose_stamp.append(pose_stamped)
+        except Exception as e:
+            rospy.logerr('Error when parsing poses/offsets and building inverse kinematics request: ' + repr(e))
+            raise
+
 
         # Wait for service (important!)
         self._ik_service_proxies[limb].wait_for_service(self._timeout)
@@ -136,7 +160,7 @@ class PoseToJointTrajServiceState(smach.State):
         try:
             ik_response = self._ik_service_proxies[limb](ik_request)
         except (rospy.ServiceException, rospy.ROSException), e:
-            rospy.logerr("Service call failed: %s" % (e,))
+            rospy.logerr("Inverse kinematics service call failed: %s" % (e,))
             return 'aborted'
 
         # Check response validity and return result appropriately

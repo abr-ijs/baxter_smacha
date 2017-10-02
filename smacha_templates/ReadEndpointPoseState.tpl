@@ -23,20 +23,31 @@ class ReadEndpointPoseState(smach.State):
 
     def execute(self, userdata):
         # Get limb from userdata
-        limb = userdata.limb
+        if 'limb' in userdata:
+            limb = userdata.limb
+        else:
+            raise ValueError('Limb should be specified in userdata!')
 
-        current_pose = self._limb_interfaces[limb].endpoint_pose()
+        try:
+            current_pose = self._limb_interfaces[limb].endpoint_pose()
+        except Exception as e:
+            rospy.logerr('Error when reading endpoint pose from limb interface: ' + repr(e))
+            raise
 
-        pose = Pose()
-        pose.position.x = current_pose['position'].x
-        pose.position.y = current_pose['position'].y
-        pose.position.z = current_pose['position'].z
-        pose.orientation.x = current_pose['orientation'].x
-        pose.orientation.y = current_pose['orientation'].y
-        pose.orientation.z = current_pose['orientation'].z
-        pose.orientation.w = current_pose['orientation'].w
+        try:
+            pose = Pose()
+            pose.position.x = current_pose['position'].x
+            pose.position.y = current_pose['position'].y
+            pose.position.z = current_pose['position'].z
+            pose.orientation.x = current_pose['orientation'].x
+            pose.orientation.y = current_pose['orientation'].y
+            pose.orientation.z = current_pose['orientation'].z
+            pose.orientation.w = current_pose['orientation'].w
 
-        userdata.pose = pose
+            userdata.pose = pose
+        except Exception as e:
+            rospy.logerr('Error when parsing endpoint pose: ' + repr(e))
+            raise
 
         return 'succeeded'
 {% do defined_headers.append('class_ReadEndpointPoseState') %}

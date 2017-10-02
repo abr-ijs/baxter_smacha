@@ -53,28 +53,44 @@ class MoveToJointPositionsState(smach.State):
         # If a positions callback has been defined, use it to format
         # positions specified by the input keys in the userdata
         if self._positions_cb:
-            positions = self._positions_cb(userdata)
+            try:
+                positions = self._positions_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using positions callback to format joint positions: ' + repr(e))
+                raise
         else:
-            positions = userdata.positions
+            if 'positions' in userdata:
+                positions = userdata.positions
+            else:
+                raise ValueError('Joint positions should be specified in userdata!')
 
         # Check whether or not positions is a singleton and convert if necessary
-        if isinstance(positions, list):
-            if isinstance(positions[0], list) or isinstance(positions[0], JointState):
-                positions = positions[0]
+        try:
+            if isinstance(positions, list):
+                if isinstance(positions[0], list) or isinstance(positions[0], JointState):
+                    positions = positions[0]
+        except Exception as e:
+            rospy.logerr('Error when converting joint positions to singleton: ' + repr(e))
+            raise
                 
         # Parse positions
-        if positions:
+        try:
             if isinstance(positions, list):
                 limb_joint_names = [self._limb_interfaces[limb].name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
                 positions = dict(zip(limb_joint_names, positions))
             elif isinstance(positions, JointState):
                 positions = dict(zip(positions.name, positions.position))
             else:
-                return 'aborted'
+                raise ValueError('Positions should be specified as a list or a JointState.')
+        except Exception as e:
+            rospy.logerr('Error when parsing joint positions: ' + repr(e))
+            raise
 
+        try:
             self._limb_interfaces[limb].move_to_joint_positions(positions, timeout=self._timeout)
-        else:
-            return 'aborted'
+        except Exception as e:
+            rospy.logerr('Error when using limb interface to move to joint positions: ' + repr(e))
+            raise
 
         return 'succeeded'
 
@@ -100,78 +116,102 @@ class PoseToJointTrajServiceState(smach.State):
         # If a poses callback has been defined, use it to format
         # poses specified by the input keys in the userdata
         if self._poses_cb:
-            poses = self._poses_cb(userdata)
+            try:
+                poses = self._poses_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using poses callback to format poses: ' + repr(e))
+                raise
         else:
-            poses = userdata.poses
+            if 'poses' in userdata:
+                poses = userdata.poses
+            else:
+                raise ValueError('Joint positions should be specified in userdata!')
         
         # If an offsets callback has been defined, use it to format
         # offsets specified by the input keys in the userdata
         if self._offsets_cb:
-            offsets = self._offsets_cb(userdata)
+            try:
+                offsets = self._offsets_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using offsets callback to format pose offsets: ' + repr(e))
+                raise
         else:
             if 'offsets' in userdata:
                 offsets = userdata.offsets
             else:
                 offsets = None
 
-        # Check if poses is a singleton and convert to list if necessary
-        if not isinstance(poses, list):
-            poses = [poses]
-        elif len(poses) == 2 and len(poses[0]) != len(poses[1]):
-            poses = [poses]
-        else:
-            return 'aborted'
+        # Check if poses is a list, singleton or otherwise, and convert if necessary
+        try:
+            if not isinstance(poses, list):
+                poses = [poses]
+            elif len(poses) == 2 and len(poses[0]) != len(poses[1]):
+                poses = [poses]
+            else:
+                raise ValueError('Poses should be specified as a list!')
+        except Exception as e:
+            rospy.logerr('Error when converting poses to a list: ' + repr(e))
+            raise
 
         # Check if offsets is a singleton and convert to list if necessary
         if offsets:
-            if not isinstance(offsets, list):
-                offsets = [offsets]
-            elif len(offsets) == 2 and len(offsets[0]) != len(offsets[1]):
-                offsets = [offsets]
-            else:
-                return 'aborted'
+            try:
+                if not isinstance(offsets, list):
+                    offsets = [offsets]
+                elif len(offsets) == 2 and len(offsets[0]) != len(offsets[1]):
+                    offsets = [offsets]
+                else:
+                    raise ValueError('Offsets should be specified as a list!')
+            except Exception as e:
+                rospy.logerr('Error when converting offsets to a list: ' + repr(e))
+                raise
         
         # Set up a request object
         ik_request = SolvePositionIKRequest()
 
         # Parse poses from userdata, stamp them, add offsets if required,
         # and append to inverse kinematics request.
-        header = Header(stamp=rospy.Time.now(), frame_id='base')
-        for i_pose in range(len(poses)):
-            # Parse pose
-            pose = poses[i_pose]
-            if isinstance(pose, PoseStamped):
-                pose_stamped = pose
-            elif isinstance(pose, Pose):
-                pose_stamped = PoseStamped(header=header, pose=pose)
-            elif isinstance(pose, list):
-                position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
-                orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
-                pose_stamped = PoseStamped(header=header, pose = Pose(position=position, orientation=orientation))
-            else:
-                return 'aborted'
+        try:
+            header = Header(stamp=rospy.Time.now(), frame_id='base')
+            for i_pose in range(len(poses)):
+                # Parse pose
+                pose = poses[i_pose]
+                if isinstance(pose, PoseStamped):
+                    pose_stamped = pose
+                elif isinstance(pose, Pose):
+                    pose_stamped = PoseStamped(header=header, pose=pose)
+                elif isinstance(pose, list):
+                    position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
+                    orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
+                    pose_stamped = PoseStamped(header=header, pose = Pose(position=position, orientation=orientation))
+                else:
+                    return 'aborted'
 
-            # Parse offset
-            if offsets:
-                offset = offsets[i_pose]
-                if isinstance(offset, PoseStamped):
-                    offset = offset.pose
-                elif isinstance(offset, Pose):
-                    pass
-                elif isinstance(offset, list):
-                    offset = Pose(position=Point(x=offset[0][0], y=offset[0][1], z=offset[0][2]),
-                                  orientation=Quaternion(x=offset[1][0], y=offset[1][1], z=offset[1][2], w=offset[1][3]))
+                # Parse offset
+                if offsets:
+                    offset = offsets[i_pose]
+                    if isinstance(offset, PoseStamped):
+                        offset = offset.pose
+                    elif isinstance(offset, Pose):
+                        pass
+                    elif isinstance(offset, list):
+                        offset = Pose(position=Point(x=offset[0][0], y=offset[0][1], z=offset[0][2]),
+                                      orientation=Quaternion(x=offset[1][0], y=offset[1][1], z=offset[1][2], w=offset[1][3]))
 
-                pose_stamped.pose.position.x = pose_stamped.pose.position.x + offset.position.x
-                pose_stamped.pose.position.y = pose_stamped.pose.position.y + offset.position.y
-                pose_stamped.pose.position.z = pose_stamped.pose.position.z + offset.position.z
-                pose_stamped.pose.orientation.x = pose_stamped.pose.orientation.x + offset.orientation.x
-                pose_stamped.pose.orientation.y = pose_stamped.pose.orientation.y + offset.orientation.y
-                pose_stamped.pose.orientation.z = pose_stamped.pose.orientation.z + offset.orientation.z
-                pose_stamped.pose.orientation.w = pose_stamped.pose.orientation.w + offset.orientation.w
+                    pose_stamped.pose.position.x = pose_stamped.pose.position.x + offset.position.x
+                    pose_stamped.pose.position.y = pose_stamped.pose.position.y + offset.position.y
+                    pose_stamped.pose.position.z = pose_stamped.pose.position.z + offset.position.z
+                    pose_stamped.pose.orientation.x = pose_stamped.pose.orientation.x + offset.orientation.x
+                    pose_stamped.pose.orientation.y = pose_stamped.pose.orientation.y + offset.orientation.y
+                    pose_stamped.pose.orientation.z = pose_stamped.pose.orientation.z + offset.orientation.z
+                    pose_stamped.pose.orientation.w = pose_stamped.pose.orientation.w + offset.orientation.w
 
-            # Append pose to IK request
-            ik_request.pose_stamp.append(pose_stamped)
+                # Append pose to IK request
+                ik_request.pose_stamp.append(pose_stamped)
+        except Exception as e:
+            rospy.logerr('Error when parsing poses/offsets and building inverse kinematics request: ' + repr(e))
+            raise
+
 
         # Wait for service (important!)
         self._ik_service_proxies[limb].wait_for_service(self._timeout)
@@ -180,7 +220,7 @@ class PoseToJointTrajServiceState(smach.State):
         try:
             ik_response = self._ik_service_proxies[limb](ik_request)
         except (rospy.ServiceException, rospy.ROSException), e:
-            rospy.logerr("Service call failed: %s" % (e,))
+            rospy.logerr("Inverse kinematics service call failed: %s" % (e,))
             return 'aborted'
 
         # Check response validity and return result appropriately
@@ -227,44 +267,71 @@ class LoadGazeboModelState(smach.State):
         # If a pose callback has been defined, use it to format
         # pose specified by the input keys in the userdata
         if self._pose_cb:
-            pose = self._pose_cb(userdata)
+            try:
+                pose = self._pose_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using poses callback to format poses: ' + repr(e))
+                raise
         else:
-            pose = userdata.pose
+            if 'pose' in userdata:
+                pose = userdata.pose
+            else:
+                raise ValueError('Pose should be specified in userdata!')
 
         # Parse pose
-        if isinstance(pose, PoseStamped):
-            pose = pose.pose
-        elif isinstance(pose, Pose):
-            pose = pose
-        elif isinstance(pose, list):
-            position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
-            orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
-            pose = Pose(position=position, orientation=orientation)
-        else:
-            return 'aborted'
+        try:
+            if isinstance(pose, PoseStamped):
+                pose = pose.pose
+            elif isinstance(pose, Pose):
+                pose = pose
+            elif isinstance(pose, list):
+                position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
+                orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
+                pose = Pose(position=position, orientation=orientation)
+            else:
+                raise ValueError('Pose should be specified as a list, Pose or PoseStamped!')
+        except Exception as e:
+            rospy.logerr('Error when parsing Gazebo model pose: ' + repr(e))
+            raise
 
         # Parse reference_frame
-        reference_frame = userdata.reference_frame
-        if isinstance(reference_frame, str):
-            pass
-        elif isinstance(reference_frame, list):
-            if isinstance(reference_frame[0], str):
-                reference_frame = reference_frame[0]
+        try:
+            if 'reference_frame' in userdata:
+                reference_frame = userdata.reference_frame
+
+                if isinstance(reference_frame, str):
+                    pass
+                elif isinstance(reference_frame, list):
+                    if isinstance(reference_frame[0], str):
+                        reference_frame = reference_frame[0]
+                    else:
+                        raise ValueError('The reference frame should be specified as a string!')
+                else:
+                        raise ValueError('The reference frame should be specified as a string!')
             else:
-                return 'aborted'
-        else:
-            return 'aborted'
+                raise ValueError('The reference frame should be specified in userdata!')
+        except Exception as e:
+            rospy.logerr('Error when parsing Gazebo model reference frame: ' + repr(e))
+            raise
 
         # Load model SDF/URDF XML
-        model_xml = ''
-        with open(self._model_path, 'r') as model_file:
-            model_xml = model_file.read().replace('\n', '')
+        try:
+            model_xml = ''
+            with open(self._model_path, 'r') as model_file:
+                model_xml = model_file.read().replace('\n', '')
+        except Exception as e:
+            rospy.logerr('Error when loading Gazebo model XML file: ' + repr(e))
+            raise
 
         # Spawn model SDF/URDF
-        if os.path.splitext(self._model_path)[1][1:].lower() == 'sdf':
-            spawn_service_type = 'sdf'
-        elif os.path.splitext(self._model_path)[1][1:].lower() == 'urdf':
-            spawn_service_type = 'urdf'
+        try:
+            if os.path.splitext(self._model_path)[1][1:].lower() == 'sdf':
+                spawn_service_type = 'sdf'
+            elif os.path.splitext(self._model_path)[1][1:].lower() == 'urdf':
+                spawn_service_type = 'urdf'
+        except Exception as e:
+            rospy.logerr('Error when determining whether Gazebo model is SDF or URDF: ' + repr(e))
+            raise
 
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
@@ -290,28 +357,42 @@ class GripperInterfaceState(smach.State):
 
     def execute(self, userdata):
         # Get limb + command from userdata
-        limb = userdata.limb
-        command = userdata.command
+        if 'limb' in userdata:
+            limb = userdata.limb
+        else:
+            raise ValueError('Limb should be specified in userdata!')
+        if 'command' in userdata:
+            command = userdata.command
+        else:
+            raise ValueError('Command should be specified in userdata!')
 
         # Parse command
-        if isinstance(command, str):
-            pass
-        elif isinstance(command, list):
-            if isinstance(command[0], str):
-                command = command[0]
+        try:
+            if isinstance(command, str):
+                pass
+            elif isinstance(command, list):
+                if isinstance(command[0], str):
+                    command = command[0]
+                else:
+                    raise ValueError('Command should be specified as a string!')
             else:
-                return 'aborted'
-        else:
-            return 'aborted'
+                    raise ValueError('Command should be specified as a string!')
+        except Exception as e:
+            rospy.logerr('Error when parsing gripper interface command: ' + repr(e))
+            raise
 
-        if command == 'open':
-            self._gripper_interfaces[limb].open()
-            rospy.sleep(1.0)
-        elif command == 'close':
-            self._gripper_interfaces[limb].close()
-            rospy.sleep(1.0)
-        else:
-            return 'aborted'
+        try:
+            if command == 'open':
+                self._gripper_interfaces[limb].open()
+                rospy.sleep(1.0)
+            elif command == 'close':
+                self._gripper_interfaces[limb].close()
+                rospy.sleep(1.0)
+            else:
+                raise ValueError('Command should be either \'open\' or \'close\'!')
+        except Exception as e:
+            rospy.logerr('Error when running gripper interface command: ' + repr(e))
+            raise
 
         return 'succeeded'
 
@@ -323,20 +404,31 @@ class ReadEndpointPoseState(smach.State):
 
     def execute(self, userdata):
         # Get limb from userdata
-        limb = userdata.limb
+        if 'limb' in userdata:
+            limb = userdata.limb
+        else:
+            raise ValueError('Limb should be specified in userdata!')
 
-        current_pose = self._limb_interfaces[limb].endpoint_pose()
+        try:
+            current_pose = self._limb_interfaces[limb].endpoint_pose()
+        except Exception as e:
+            rospy.logerr('Error when reading endpoint pose from limb interface: ' + repr(e))
+            raise
 
-        pose = Pose()
-        pose.position.x = current_pose['position'].x
-        pose.position.y = current_pose['position'].y
-        pose.position.z = current_pose['position'].z
-        pose.orientation.x = current_pose['orientation'].x
-        pose.orientation.y = current_pose['orientation'].y
-        pose.orientation.z = current_pose['orientation'].z
-        pose.orientation.w = current_pose['orientation'].w
+        try:
+            pose = Pose()
+            pose.position.x = current_pose['position'].x
+            pose.position.y = current_pose['position'].y
+            pose.position.z = current_pose['position'].z
+            pose.orientation.x = current_pose['orientation'].x
+            pose.orientation.y = current_pose['orientation'].y
+            pose.orientation.z = current_pose['orientation'].z
+            pose.orientation.w = current_pose['orientation'].w
 
-        userdata.pose = pose
+            userdata.pose = pose
+        except Exception as e:
+            rospy.logerr('Error when parsing endpoint pose: ' + repr(e))
+            raise
 
         return 'succeeded'
 
@@ -547,11 +639,15 @@ def main():
     # Disable robot
     rospy.on_shutdown(rs.disable)
 
-    outcome = sm.execute()
+    try:
+        outcome = sm.execute()
+        
+        print("Baxter SMACH Pick and Place Test Complete. Ctrl-C to exit.")
     
-    print("Baxter SMACH Pick and Place Test Complete. Ctrl-C to exit.")
-    
-    rospy.spin()
+        rospy.spin()
+    except Exception as e:
+        rospy.logerr('Error when executing state machine: ' + repr(e))
+        rospy.signal_shutdown('Error when executing state machine: ' + repr(e))
 
 if __name__ == "__main__":
     main()
