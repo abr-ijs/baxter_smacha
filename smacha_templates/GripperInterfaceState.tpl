@@ -11,28 +11,42 @@ class GripperInterfaceState(smach.State):
 
     def execute(self, userdata):
         # Get limb + command from userdata
-        limb = userdata.limb
-        command = userdata.command
+        if 'limb' in userdata:
+            limb = userdata.limb
+        else:
+            raise ValueError('Limb should be specified in userdata!')
+        if 'command' in userdata:
+            command = userdata.command
+        else:
+            raise ValueError('Command should be specified in userdata!')
 
         # Parse command
-        if isinstance(command, str):
-            pass
-        elif isinstance(command, list):
-            if isinstance(command[0], str):
-                command = command[0]
+        try:
+            if isinstance(command, str):
+                pass
+            elif isinstance(command, list):
+                if isinstance(command[0], str):
+                    command = command[0]
+                else:
+                    raise ValueError('Command should be specified as a string!')
             else:
-                return 'aborted'
-        else:
-            return 'aborted'
+                    raise ValueError('Command should be specified as a string!')
+        except Exception as e:
+            rospy.logerr('Error when parsing gripper interface command: ' + repr(e))
+            raise
 
-        if command == 'open':
-            self._gripper_interfaces[limb].open()
-            rospy.sleep(1.0)
-        elif command == 'close':
-            self._gripper_interfaces[limb].close()
-            rospy.sleep(1.0)
-        else:
-            return 'aborted'
+        try:
+            if command == 'open':
+                self._gripper_interfaces[limb].open()
+                rospy.sleep(1.0)
+            elif command == 'close':
+                self._gripper_interfaces[limb].close()
+                rospy.sleep(1.0)
+            else:
+                raise ValueError('Command should be either \'open\' or \'close\'!')
+        except Exception as e:
+            rospy.logerr('Error when running gripper interface command: ' + repr(e))
+            raise
 
         return 'succeeded'
 {% do defined_headers.append('class_GripperInterfaceState') %}

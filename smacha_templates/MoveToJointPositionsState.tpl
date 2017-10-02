@@ -31,28 +31,44 @@ class MoveToJointPositionsState(smach.State):
         # If a positions callback has been defined, use it to format
         # positions specified by the input keys in the userdata
         if self._positions_cb:
-            positions = self._positions_cb(userdata)
+            try:
+                positions = self._positions_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using positions callback to format joint positions: ' + repr(e))
+                raise
         else:
-            positions = userdata.positions
+            if 'positions' in userdata:
+                positions = userdata.positions
+            else:
+                raise ValueError('Joint positions should be specified in userdata!')
 
         # Check whether or not positions is a singleton and convert if necessary
-        if isinstance(positions, list):
-            if isinstance(positions[0], list) or isinstance(positions[0], JointState):
-                positions = positions[0]
+        try:
+            if isinstance(positions, list):
+                if isinstance(positions[0], list) or isinstance(positions[0], JointState):
+                    positions = positions[0]
+        except Exception as e:
+            rospy.logerr('Error when converting joint positions to singleton: ' + repr(e))
+            raise
                 
         # Parse positions
-        if positions:
+        try:
             if isinstance(positions, list):
                 limb_joint_names = [self._limb_interfaces[limb].name + joint_name for joint_name in ['_s0', '_s1', '_e0', '_e1', '_w0', '_w1', '_w2']]
                 positions = dict(zip(limb_joint_names, positions))
             elif isinstance(positions, JointState):
                 positions = dict(zip(positions.name, positions.position))
             else:
-                return 'aborted'
+                raise ValueError('Positions should be specified as a list or a JointState.')
+        except Exception as e:
+            rospy.logerr('Error when parsing joint positions: ' + repr(e))
+            raise
 
+        try:
             self._limb_interfaces[limb].move_to_joint_positions(positions, timeout=self._timeout)
-        else:
-            return 'aborted'
+        except Exception as e:
+            rospy.logerr('Error when using limb interface to move to joint positions: ' + repr(e))
+            raise
 
         return 'succeeded'
 {% do defined_headers.append('class_MoveToJointPositionsState') %}

@@ -44,44 +44,71 @@ class LoadGazeboModelState(smach.State):
         # If a pose callback has been defined, use it to format
         # pose specified by the input keys in the userdata
         if self._pose_cb:
-            pose = self._pose_cb(userdata)
+            try:
+                pose = self._pose_cb(userdata)
+            except Exception as e:
+                rospy.logerr('Error when using poses callback to format poses: ' + repr(e))
+                raise
         else:
-            pose = userdata.pose
+            if 'pose' in userdata:
+                pose = userdata.pose
+            else:
+                raise ValueError('Pose should be specified in userdata!')
 
         # Parse pose
-        if isinstance(pose, PoseStamped):
-            pose = pose.pose
-        elif isinstance(pose, Pose):
-            pose = pose
-        elif isinstance(pose, list):
-            position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
-            orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
-            pose = Pose(position=position, orientation=orientation)
-        else:
-            return 'aborted'
+        try:
+            if isinstance(pose, PoseStamped):
+                pose = pose.pose
+            elif isinstance(pose, Pose):
+                pose = pose
+            elif isinstance(pose, list):
+                position = Point(x=pose[0][0], y=pose[0][1], z=pose[0][2])
+                orientation = Quaternion(x=pose[1][0], y=pose[1][1], z=pose[1][2], w=pose[1][3])
+                pose = Pose(position=position, orientation=orientation)
+            else:
+                raise ValueError('Pose should be specified as a list, Pose or PoseStamped!')
+        except Exception as e:
+            rospy.logerr('Error when parsing Gazebo model pose: ' + repr(e))
+            raise
 
         # Parse reference_frame
-        reference_frame = userdata.reference_frame
-        if isinstance(reference_frame, str):
-            pass
-        elif isinstance(reference_frame, list):
-            if isinstance(reference_frame[0], str):
-                reference_frame = reference_frame[0]
+        try:
+            if 'reference_frame' in userdata:
+                reference_frame = userdata.reference_frame
+
+                if isinstance(reference_frame, str):
+                    pass
+                elif isinstance(reference_frame, list):
+                    if isinstance(reference_frame[0], str):
+                        reference_frame = reference_frame[0]
+                    else:
+                        raise ValueError('The reference frame should be specified as a string!')
+                else:
+                        raise ValueError('The reference frame should be specified as a string!')
             else:
-                return 'aborted'
-        else:
-            return 'aborted'
+                raise ValueError('The reference frame should be specified in userdata!')
+        except Exception as e:
+            rospy.logerr('Error when parsing Gazebo model reference frame: ' + repr(e))
+            raise
 
         # Load model SDF/URDF XML
-        model_xml = ''
-        with open(self._model_path, 'r') as model_file:
-            model_xml = model_file.read().replace('\n', '')
+        try:
+            model_xml = ''
+            with open(self._model_path, 'r') as model_file:
+                model_xml = model_file.read().replace('\n', '')
+        except Exception as e:
+            rospy.logerr('Error when loading Gazebo model XML file: ' + repr(e))
+            raise
 
         # Spawn model SDF/URDF
-        if os.path.splitext(self._model_path)[1][1:].lower() == 'sdf':
-            spawn_service_type = 'sdf'
-        elif os.path.splitext(self._model_path)[1][1:].lower() == 'urdf':
-            spawn_service_type = 'urdf'
+        try:
+            if os.path.splitext(self._model_path)[1][1:].lower() == 'sdf':
+                spawn_service_type = 'sdf'
+            elif os.path.splitext(self._model_path)[1][1:].lower() == 'urdf':
+                spawn_service_type = 'urdf'
+        except Exception as e:
+            rospy.logerr('Error when determining whether Gazebo model is SDF or URDF: ' + repr(e))
+            raise
 
         try:
             spawn_service_proxy = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)

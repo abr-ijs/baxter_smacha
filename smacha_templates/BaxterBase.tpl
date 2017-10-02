@@ -26,7 +26,21 @@ from baxter_interface import CHECK_VERSION
 {% endblock main_def %}
 
 {% block execute %}
+    {{ execute | indent(4) }}
+    
     # Disable robot
     rospy.on_shutdown(rs.disable)
-{{ super() }}
+
+    try:
+        outcome = sm.execute()
+        
+        print("Baxter SMACH Pick and Place Test Complete. Ctrl-C to exit.")
+    
+        rospy.spin()
+    except Exception as e:
+        rospy.logerr('Error when executing state machine: ' + repr(e))
+        rospy.signal_shutdown('Error when executing state machine: ' + repr(e))
 {% endblock execute %}
+
+{% block spin %}
+{% endblock spin %}
