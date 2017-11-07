@@ -5,7 +5,6 @@
     outcomes: [succeeded, aborted, preempted]
     userdata: {open_command: open, close_command: close}
     input_keys: [limb, pick_pose, hover_offset]
-    transitions: {succeeded: succeeded}
     states:
       - IK_PICK_BLOCK_HOVER_POSE:
           template: PoseToJointTrajServiceState
