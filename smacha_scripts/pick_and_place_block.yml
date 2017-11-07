@@ -5,7 +5,6 @@
     outcomes: [succeeded, aborted, preempted]
     input_keys: [limb, pick_pose, place_pose, hover_offset]
     remapping: {pick_pose: pick_pose, place_pose: place_pose, hover_offset: hover_offset}
-    transitions: {succeeded: succeeded}
     states:
       - PICK_BLOCK:
           script: pick_block
