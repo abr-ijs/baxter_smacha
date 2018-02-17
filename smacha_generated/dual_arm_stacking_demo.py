@@ -31,6 +31,7 @@ import rospy
 
 
 
+
 from std_msgs.msg import Header
 
 
@@ -39,6 +40,26 @@ from baxter_core_msgs.srv import (
     SolvePositionIK,
     SolvePositionIKRequest,
 )
+
+
+
+
+from geometry_msgs.msg import Pose
+
+
+
+
+from geometry_msgs.msg import PoseStamped
+
+
+
+
+from geometry_msgs.msg import Point
+
+
+
+
+from geometry_msgs.msg import Quaternion
 
 import rospkg
 
@@ -507,9 +528,7 @@ def main():
         
         sm_pick_blocks = smach.Concurrence(outcomes=['succeeded', 'aborted', 'preempted'],
                                            default_outcome='succeeded',
-                                           outcome_map={'succeeded':
-                                                            { 'PICK_BLOCK_1': 'succeeded',
-                                                              'PICK_BLOCK_2': 'succeeded'}},
+                                           outcome_map={'succeeded': { 'PICK_BLOCK_1': 'succeeded', 'PICK_BLOCK_2': 'succeeded'}},
                                            input_keys = ['block_1_limb', 'left_limb_joint_start_positions', 'block_model_1_pick_pose', 'block_2_limb', 'right_limb_joint_start_positions', 'block_model_2_pick_pose', 'hover_offset'])
         
         

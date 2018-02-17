@@ -1,12 +1,9 @@
-{% from "Utils.tpl" import render_input_keys, render_transitions, render_remapping %}
+{% from "Utils.tpl" import render_input_keys, render_transitions, render_remapping, import_sensor_msg %}
 
 {% include "State.tpl" %}
 
 {% block imports %}
-{% if 'sensor_msgs_msg_import_JointState' not in defined_headers %}
-from sensor_msgs.msg import JointState
-{% do defined_headers.append('sensor_msgs_msg_import_JointState') %}
-{% endif %}
+{{ import_sensor_msg(defined_headers, 'JointState') }}
 {% endblock imports %}
 
 {% block class_defs %}

@@ -31,6 +31,7 @@ import rospy
 
 
 
+
 from std_msgs.msg import Header
 
 
@@ -39,6 +40,26 @@ from baxter_core_msgs.srv import (
     SolvePositionIK,
     SolvePositionIKRequest,
 )
+
+
+
+
+from geometry_msgs.msg import Pose
+
+
+
+
+from geometry_msgs.msg import PoseStamped
+
+
+
+
+from geometry_msgs.msg import Point
+
+
+
+
+from geometry_msgs.msg import Quaternion
 
 import rospkg
 

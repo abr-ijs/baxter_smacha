@@ -1,17 +1,12 @@
-{% from "Utils.tpl" import render_transitions, render_remapping %}
+{% from "Utils.tpl" import render_transitions, render_remapping, import_geometry_msg %}
 
 {% include "State.tpl" %}
 
 {% block imports %}
-{% if 'geometry_msgs_msg_import' not in defined_headers %}
-from geometry_msgs.msg import (
-    PoseStamped,
-    Pose,
-    Point,
-    Quaternion,
-)
-{% do defined_headers.append('geometry_msgs_msg_import') %}
-{% endif %}
+{{ import_geometry_msg(defined_headers, 'Pose') }}
+{{ import_geometry_msg(defined_headers, 'PoseStamped') }}
+{{ import_geometry_msg(defined_headers, 'Point') }}
+{{ import_geometry_msg(defined_headers, 'Quaternion') }}
 {% endblock imports %}
 
 {% block class_defs %}

@@ -1,4 +1,4 @@
-{% from "Utils.tpl" import render_input_keys, render_output_keys, render_transitions, render_remapping %}
+{% from "Utils.tpl" import render_input_keys, render_output_keys, render_transitions, render_remapping, import_std_msg, import_geometry_msg %}
 
 {% include "State.tpl" %}
 
@@ -11,10 +11,7 @@ import struct
 import rospy
 {% do defined_headers.append('import_rospy') %}
 {% endif %}
-{% if 'std_msgs_msg_import_Header' not in defined_headers %}
-from std_msgs.msg import Header
-{% do defined_headers.append('std_msgs_msg_import_Header') %}
-{% endif %}
+{{ import_std_msg(defined_headers, 'Header') }}
 {% if 'baxter_core_msgs_srv_import' not in defined_headers %}
 from baxter_core_msgs.srv import (
     SolvePositionIK,
@@ -22,15 +19,10 @@ from baxter_core_msgs.srv import (
 )
 {% do defined_headers.append('baxter_core_msgs_srv_import') %}
 {% endif %}
-{% if 'geometry_msgs_msg_import' not in defined_headers %}
-from geometry_msgs.msg import (
-    PoseStamped,
-    Pose,
-    Point,
-    Quaternion,
-)
-{% do defined_headers.append('geometry_msgs_msg_import') %}
-{% endif %}
+{{ import_geometry_msg(defined_headers, 'Pose') }}
+{{ import_geometry_msg(defined_headers, 'PoseStamped') }}
+{{ import_geometry_msg(defined_headers, 'Point') }}
+{{ import_geometry_msg(defined_headers, 'Quaternion') }}
 {% endblock imports %}
 
 {% block class_defs %}
